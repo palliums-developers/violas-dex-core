@@ -114,7 +114,7 @@ module ExBase {
     // @param input_reserve amount of violas or tokens (input type) in exchange reserves.
     // @param output_reserve Amount of violas or tokens (output type) in exchange reserves.
     // @return amount of violas or token bought.
-    public fun get_input_price(tokenidx: u64, input_amount: u64, input_reserve: u64, output_reserve: u64): u64 {
+    public fun get_input_price(input_amount: u64, input_reserve: u64, output_reserve: u64): u64 {
         Transaction::assert(input_reserve > 0 && output_reserve > 0, 212);
         let input_amount_with_fee = (input_amount as u128) * 997;
         let numerator = input_amount_with_fee * (output_reserve as u128);
@@ -128,7 +128,7 @@ module ExBase {
     // @param input_reserve amount of violas or tokens (input type) in exchange reserves.
     // @param output_reserve Amount of violas or tokens (output type) in exchange reserves.
     // @return amount of violas or token sold.
-    public fun get_output_price(tokenidx: u64, output_amount: u64, input_reserve: u64, output_reserve: u64): u64 {
+    public fun get_output_price(output_amount: u64, input_reserve: u64, output_reserve: u64): u64 {
         Transaction::assert(input_reserve > 0 && output_reserve > 0, 213);
         let numerator = (input_reserve as u128) * (output_amount as u128) * 1000;
         let denominator = ((output_reserve - output_amount) as u128) * 997;

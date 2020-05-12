@@ -3,7 +3,7 @@ address 0x7257c2417e4d1038e1817c8f283ace2e:
 module Exchange {
     use 0x0::Vector;
     use 0x0::Transaction;
-    use 0x0::LibraAccount;
+    use 0x0::Event;
     use 0x0::LBR;
     use 0x0::Libra;
     use 0x7257c2417e4d1038e1817c8f283ace2e::ViolasToken;
@@ -23,7 +23,7 @@ module Exchange {
     resource struct LQTokens {
 	    ts: ExBase::T,
         // Event handle for exchange event
-        exchange_events: LibraAccount::EventHandle<ExchangeEvent>,
+        exchange_events: Event::EventHandle<ExchangeEvent>,
     }
 
     // Message for sent events
@@ -38,7 +38,7 @@ module Exchange {
     public fun emit_events(etype: u64, v1: u64, v2: u64, v3: u64, v4: u64) acquires LQTokens {
         let sender = Transaction::sender();
         let lqtoken = borrow_global_mut<LQTokens>(sender);
-        LibraAccount::emit_event<ExchangeEvent>(
+        Event::emit_event<ExchangeEvent>(
             &mut lqtoken.exchange_events, 
             ExchangeEvent {
                 etype: etype,
@@ -62,7 +62,7 @@ module Exchange {
         Transaction::assert(!exists<LQTokens>(sender), 214);
         move_to_sender<LQTokens>(LQTokens { 
             ts: ExBase::create_tokens(),
-            exchange_events:  LibraAccount::new_event_handle<ExchangeEvent>(),
+            exchange_events:  Event::new_event_handle<ExchangeEvent>(),
             }
         );
         emit_events(0, 0, 0, 0, 0);
@@ -181,7 +181,7 @@ module Exchange {
         let pool = borrow_global_mut<T>(ExBase::contract_address());
         let (token_reserve, violas_reserve) = get_reserve_internal(tokenidx, &mut pool.reserves);
         let reserve = Vector::borrow_mut(&mut pool.reserves, tokenidx);
-        let tokens_bought = ExBase::get_input_price(tokenidx, violas_sold, violas_reserve, token_reserve);
+        let tokens_bought = ExBase::get_input_price(violas_sold, violas_reserve, token_reserve);
         Transaction::assert(tokens_bought >= min_tokens, 222);
         ExBase::deposit_violas(&mut reserve.violas, violas_sold);
         ExBase::withdraw_token(&mut reserve.token, tokens_bought);
@@ -205,7 +205,7 @@ module Exchange {
         let pool = borrow_global_mut<T>(ExBase::contract_address());
         let (token_reserve, violas_reserve) = get_reserve_internal(tokenidx, &mut pool.reserves);
         let reserve = Vector::borrow_mut(&mut pool.reserves, tokenidx);
-        let violas_bought = ExBase::get_input_price(tokenidx, tokens_sold, token_reserve, violas_reserve);
+        let violas_bought = ExBase::get_input_price(tokens_sold, token_reserve, violas_reserve);
         Transaction::assert(violas_bought >= min_violas, 226);
         ExBase::withdraw_violas(&mut reserve.violas, violas_bought);
         ExBase::deposit_token(&mut reserve.token, tokenidx, tokens_sold);
@@ -229,33 +229,11 @@ module Exchange {
         let pool = borrow_global_mut<T>(ExBase::contract_address());
         let (token_reserve, violas_reserve) = get_reserve_internal(token_sold_idx, &mut pool.reserves);
         let reserve = Vector::borrow_mut(&mut pool.reserves, token_sold_idx);
-        let violas_bought = ExBase::get_input_price(token_sold_idx, tokens_sold, token_reserve, violas_reserve);
+        let violas_bought = ExBase::get_input_price(tokens_sold, token_reserve, violas_reserve);
         Transaction::assert(violas_bought >= min_violas_bought, 230);
         ExBase::deposit_token(&mut reserve.token, token_sold_idx, tokens_sold);
         ExBase::withdraw_violas(&mut reserve.violas, violas_bought);
         let tokens_bought = _violas_to_token_swap_input(violas_bought, token_bought_idx, min_tokens_bought, deadline);
         emit_events(5, token_sold_idx, token_bought_idx, tokens_sold, tokens_bought);
-    }
-
-    //flag = 0: input, flag = 1: output
-    public fun get_violas_to_token_price(idx: u64, flag: u8, value: u64): u64 acquires T{
-        let (_, t_r, v_r) = get_reserve(idx);
-        if(flag == 0){
-            ExBase::get_input_price(idx, value, v_r, t_r)
-        }
-        else{
-            ExBase::get_output_price(idx, value, v_r, t_r)
-        }
-    }
-
-    //flag = 0: input, flag = 1: output
-    public fun get_token_to_violas_price(idx: u64, flag: u8, value: u64): u64 acquires T{
-        let (_, t_r, v_r) = get_reserve(idx);
-        if(flag == 0){
-            ExBase::get_input_price(idx, value, t_r, v_r)
-        }
-        else{
-            ExBase::get_output_price(idx, value, t_r, v_r)
-        }
     }
 }
