@@ -6,7 +6,6 @@ module Exchange {
     use 0x0::LibraAccount;
     use 0x0::LBR;
     use 0x0::Libra;
-    use 0x0::LCS;
     use 0x7257c2417e4d1038e1817c8f283ace2e::ViolasToken;
     use 0x7257c2417e4d1038e1817c8f283ace2e::ExBase;
 
@@ -23,59 +22,39 @@ module Exchange {
 
     resource struct LQTokens {
 	    ts: ExBase::T,
-        // Event handle for received event
-        received_events: LibraAccount::EventHandle<ReceivedPaymentEvent>,
-        // Event handle for sent event
-        sent_events: LibraAccount::EventHandle<SentPaymentEvent>,
+        // Event handle for exchange event
+        exchange_events: LibraAccount::EventHandle<ExchangeEvent>,
     }
 
     // Message for sent events
-    struct SentPaymentEvent {
-        // The amount of Libra::T<Token> sent
-        amount: u64,
-        // The address that was paid
-        payee: address,
-        // Metadata associated with the payment
-        metadata: vector<u8>,
+    struct ExchangeEvent {
+        etype: u64,
+        value1: u64,
+        value2: u64,
+        value3: u64,
+        value4: u64,
     }
 
-    // Message for received events
-    struct ReceivedPaymentEvent {
-        // The amount of Libra::T<Token> received
-        amount: u64,
-        // The address that sent the coin
-        payer: address,
-        // Metadata associated with the payment
-        metadata: vector<u8>,
-    }
-
-    public fun emit_events(etype: u64, index1: u64, index2: u64, payee: address, amount1: u64, amount2: u64) acquires LQTokens {
-        let v = LCS::to_bytes(&etype);
-        Vector::append(&mut v, LCS::to_bytes(&index1));
-        Vector::append(&mut v, LCS::to_bytes(&index2));
-        Vector::append(&mut v, LCS::to_bytes(&amount1));
-        Vector::append(&mut v, LCS::to_bytes(&amount2));
-
+    public fun emit_events(etype: u64, v1: u64, v2: u64, v3: u64, v4: u64) acquires LQTokens {
         let sender = Transaction::sender();
-        let sender_lqtoken = borrow_global_mut<LQTokens>(sender);
-        LibraAccount::emit_event<SentPaymentEvent>(
-            &mut sender_lqtoken.sent_events, 
-            SentPaymentEvent { 
-                amount: 0,
-                payee: payee, 
-                metadata: *&v,
+        let lqtoken = borrow_global_mut<LQTokens>(sender);
+        LibraAccount::emit_event<ExchangeEvent>(
+            &mut lqtoken.exchange_events, 
+            ExchangeEvent {
+                etype: etype,
+                value1: v1,
+                value2: v2,
+                value3: v3,
+                value4: v4,
             }
         );
+    }
 
-        let payee_lqtoken = borrow_global_mut<LQTokens>(payee);
-        LibraAccount::emit_event<ReceivedPaymentEvent>(
-            &mut payee_lqtoken.received_events,
-            ReceivedPaymentEvent { 
-                amount: amount1,
-                payer: sender,
-                metadata: *&v,
-            }
-        );
+    // This can only be invoked by the Association address, and only a single time.
+    public fun initialize() {
+        // Only callable by the Association address
+        Transaction::assert(Transaction::sender() == ExBase::contract_address(), 216);
+        move_to_sender<T>(T{reserves: Vector::empty() });
     }
 
     public fun publish() acquires LQTokens{
@@ -83,11 +62,10 @@ module Exchange {
         Transaction::assert(!exists<LQTokens>(sender), 214);
         move_to_sender<LQTokens>(LQTokens { 
             ts: ExBase::create_tokens(),
-            received_events:  LibraAccount::new_event_handle<ReceivedPaymentEvent>(), 
-            sent_events:  LibraAccount::new_event_handle<SentPaymentEvent>(), 
+            exchange_events:  LibraAccount::new_event_handle<ExchangeEvent>(),
             }
         );
-        emit_events(0, 0, 0, sender, 0, 0);
+        emit_events(0, 0, 0, 0, 0);
     }
 
     public fun require_published(addr: address) {
@@ -134,13 +112,6 @@ module Exchange {
         deposit(payee, t);
     }
 
-    // This can only be invoked by the Association address, and only a single time.
-    public fun initialize() {
-        // Only callable by the Association address
-        Transaction::assert(Transaction::sender() == ExBase::contract_address(), 216);
-        move_to_sender<T>(T{reserves: Vector::empty() });
-    }
-
     fun fill_reserves(idx: u64, reserves: &mut vector<Reserve>){
         let total_cnt = ViolasToken::token_count();
         Transaction::assert(idx < total_cnt, 217);
@@ -179,7 +150,7 @@ module Exchange {
         mint(tokenidx, liquidity_token_minted);
         ExBase::deposit_violas(&mut reserve.violas, violas_amount);
         ExBase::deposit_token(&mut reserve.token, tokenidx, token_amount);
-        emit_events(1, tokenidx, liquidity_token_minted, Transaction::sender(), violas_amount, token_amount);
+        emit_events(1, tokenidx, liquidity_token_minted, violas_amount, token_amount);
     }
 
     public fun remove_liquidity(amount: u64, tokenidx: u64, min_violas: u64, min_tokens: u64, deadline: u64) acquires T, LQTokens{
@@ -195,7 +166,7 @@ module Exchange {
         destroy(tokenidx, amount);
         ExBase::withdraw_token(&mut reserve.token, token_amount);
         ExBase::withdraw_violas(&mut reserve.violas, violas_amount);
-        emit_events(2, tokenidx, amount, Transaction::sender(), violas_amount, token_amount);
+        emit_events(2, tokenidx, amount, violas_amount, token_amount);
     }
 
     // @notice convert violas to tokens.
@@ -216,9 +187,10 @@ module Exchange {
         ExBase::withdraw_token(&mut reserve.token, tokens_bought);
         tokens_bought
     }
+
     public fun violas_to_token_swap_input(violas_sold: u64, tokenidx: u64, min_tokens: u64, deadline: u64) acquires T, LQTokens {
         let tokens_bought = _violas_to_token_swap_input(violas_sold, tokenidx, min_tokens, deadline);
-        emit_events(3, tokenidx, 0, Transaction::sender(), violas_sold, tokens_bought);
+        emit_events(3, tokenidx, 0, violas_sold, tokens_bought);
     }
 
     // @notice convert tokens to violas.
@@ -241,7 +213,7 @@ module Exchange {
     }
     public fun token_to_violas_swap_input(tokens_sold: u64, tokenidx: u64, min_violas: u64, deadline: u64) acquires T, LQTokens{
         let violas_bought = _token_to_violas_swap_input(tokens_sold, tokenidx, min_violas, deadline);
-        emit_events(4, tokenidx, 0, Transaction::sender(), tokens_sold, violas_bought);
+        emit_events(4, tokenidx, 0, tokens_sold, violas_bought);
     }
 
     // @notice convert tokens (input) to tokens (output).
@@ -262,7 +234,7 @@ module Exchange {
         ExBase::deposit_token(&mut reserve.token, token_sold_idx, tokens_sold);
         ExBase::withdraw_violas(&mut reserve.violas, violas_bought);
         let tokens_bought = _violas_to_token_swap_input(violas_bought, token_bought_idx, min_tokens_bought, deadline);
-        emit_events(5, token_sold_idx, token_bought_idx, Transaction::sender(), tokens_sold, tokens_bought);
+        emit_events(5, token_sold_idx, token_bought_idx, tokens_sold, tokens_bought);
     }
 
     //flag = 0: input, flag = 1: output
