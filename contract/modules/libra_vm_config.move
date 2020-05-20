@@ -1,8 +1,7 @@
-address 0x0:
+address 0x0 {
 
 module LibraVMConfig {
     use 0x0::LibraConfig;
-    use 0x0::Transaction;
 
     // The struct to hold all config data needed to operate the LibraVM.
     // * publishing_option: Defines Scripts/Modules that are allowed to execute in the current configruation.
@@ -72,25 +71,30 @@ module LibraVMConfig {
             min_transaction_gas_units: 600,
             large_transaction_cutoff: 600,
             instrinsic_gas_per_byte: 8,
-            maximum_number_of_gas_units: 1000000,
+            maximum_number_of_gas_units: 2000000,
             min_price_per_gas_unit: 0,
             max_price_per_gas_unit: 10000,
             max_transaction_size_in_bytes: 4096,
         };
 
-        LibraConfig::publish_new_config<Self::T>(T {
-            publishing_option,
-            gas_schedule: GasSchedule {
-                instruction_schedule,
-                native_schedule,
-                gas_constants,
-            },
-        })
+
+        LibraConfig::publish_new_config<Self::T>(
+            T {
+                publishing_option,
+                gas_schedule: GasSchedule {
+                    instruction_schedule,
+                    native_schedule,
+                    gas_constants,
+                }
+            }
+        );
     }
 
     public fun set_publishing_option(publishing_option: vector<u8>) {
-        let current_config = LibraConfig::get<Self::T>(Transaction::sender());
+        let current_config = LibraConfig::get<Self::T>();
         current_config.publishing_option = publishing_option;
-        LibraConfig::set<Self::T>(Transaction::sender(), current_config )
+        LibraConfig::set<Self::T>(current_config);
     }
+}
+
 }

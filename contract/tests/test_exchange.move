@@ -1,4 +1,9 @@
-address 0x7257c2417e4d1038e1817c8f283ace2e {
+//! account: a0
+//! account: a1, 100000000000000LBR
+//! account: a2, 100000000000000LBR
+//! account: a3, 100000000000000LBR
+
+//! sender: a0
 
 module Exchange {
     use 0x0::LBR;
@@ -321,7 +326,8 @@ module Exchange {
     }
 
     fun singleton_addr(): address {
-        0x7257c2417e4d1038e1817c8f283ace2e
+        //0xA550C18
+        {{a0}}
     }
 
     fun assert_deadline(deadline: u64) {
@@ -329,4 +335,334 @@ module Exchange {
     }
 }
 
+// check: EXECUTED
+
+
+
+//! new-transaction
+//! sender: a0
+script {
+use {{a0}}::Exchange;
+use 0x0::Coin1;
+use 0x0::Coin2;
+fun main() {
+    Exchange::initialize();
+    Exchange::publish_reserve<Coin1::T>();
+    Exchange::publish_reserve<Coin2::T>();
+}
+}
+// check: EXECUTED
+
+//! new-transaction
+//! sender: a1
+script {
+use 0x0::LibraAccount;
+use 0x0::Coin1;
+use 0x0::Coin2;
+fun main() {
+    LibraAccount::add_currency<Coin1::T>();
+    LibraAccount::add_currency<Coin2::T>();
+}
+}
+
+// check: EXECUTED
+
+//! new-transaction
+//! sender: a2
+script {
+use 0x0::LibraAccount;
+use 0x0::Coin1;
+use 0x0::Coin2;
+fun main() {
+    LibraAccount::add_currency<Coin1::T>();
+    LibraAccount::add_currency<Coin2::T>();
+}
+}
+
+// check: EXECUTED
+
+//! new-transaction
+//! sender: a3
+script {
+use 0x0::LibraAccount;
+use 0x0::Coin1;
+use 0x0::Coin2;
+fun main() {
+    LibraAccount::add_currency<Coin1::T>();
+    LibraAccount::add_currency<Coin2::T>();
+}
+}
+
+// check: EXECUTED
+
+
+//! new-transaction
+//! sender: association
+script {
+use 0x0::LibraAccount;
+use 0x0::Coin1;
+use 0x0::Coin2;
+fun main() {
+    LibraAccount::mint_to_address<Coin1::T>({{a1}}, 40*10000000000000);
+    LibraAccount::mint_to_address<Coin2::T>({{a1}}, 40*10000000000000);
+    LibraAccount::mint_to_address<Coin1::T>({{a2}}, 40*10000000000000);
+    LibraAccount::mint_to_address<Coin2::T>({{a3}}, 40*10000000000000);
+}
+}
+// check: MintEvent
+// check: MintEvent
+// check: MintEvent
+// check: MintEvent
+// check: EXECUTED
+
+
+//! new-transaction
+//! sender: a1
+script {
+use {{a0}}::Exchange;
+use 0x0::Coin1;
+use 0x0::Coin2;
+use 0x0::Transaction;
+
+fun main() {
+    Exchange::add_liquidity<Coin1::T>(0, 10*10000000000000, 5*10000000000000, 1000);
+    let liq_amt = Exchange::balance<Coin1::T>({{a1}});
+    Transaction::assert(liq_amt == 5*10000000000000, 101);
+    Exchange::add_liquidity<Coin2::T>(0, 20*10000000000000, 5*10000000000000, 1000);
+    liq_amt = Exchange::balance<Coin2::T>({{a1}});
+    Transaction::assert(liq_amt == 5*10000000000000, 102);
+}
+}
+
+// check: MintEvent
+// check: MintEvent
+// check: EXECUTED
+
+//! new-transaction
+//! sender: a1
+script {
+use {{a0}}::Exchange;
+use 0x0::Coin1;
+use 0x0::Coin2;
+use 0x0::Transaction;
+fun main() {
+    Exchange::remove_liquidity<Coin1::T>(5*10000000000000, 1, 1, 1000);
+    let liq_amt = Exchange::balance<Coin1::T>({{a1}});
+    Transaction::assert(liq_amt == 0, 103);
+    Exchange::remove_liquidity<Coin2::T>(5*10000000000000, 1, 1, 1000);
+    liq_amt = Exchange::balance<Coin2::T>({{a1}});
+    Transaction::assert(liq_amt == 0, 104);
+}
+}
+
+
+// VIOLAS_RESERVE = 5*10000000000000
+// C1_RESERVE = 10*10000000000000
+// C2_RESERVE = 20*10000000000000
+
+// VIOLAS_SOLD = 1*10000000000000
+// MIN_C1_BOUGHT = 1
+
+// HAY_BOUGHT = 16624979156244
+// MAX_VIOLAS_SOLD = 2*10000000000000
+
+// HAY_SOLD = 2*10000000000000
+// MIN_VIOLAS_BOUGHT = 1
+
+// VIOLAS_BOUGHT = 8312489578122
+// MAX_C1_SOLD = 3*10000000000000
+
+// MIN_C2_BOUGHT = 1
+// C2_BOUGHT = 28436782158340
+
+
+//! new-transaction
+//! sender: a1
+script {
+use {{a0}}::Exchange;
+use 0x0::Coin1;
+use 0x0::Coin2;
+use 0x0::Transaction;
+
+fun main() {
+    Exchange::add_liquidity<Coin1::T>(0, 10*10000000000000, 5*10000000000000, 1000);
+    let liq_amt = Exchange::balance<Coin1::T>({{a1}});
+    Transaction::assert(liq_amt == 5*10000000000000, 105);
+    Exchange::add_liquidity<Coin2::T>(0, 20*10000000000000, 5*10000000000000, 1000);
+    liq_amt = Exchange::balance<Coin2::T>({{a1}});
+    Transaction::assert(liq_amt == 5*10000000000000, 106);
+
+    let (v0, v1, v2) = Exchange::get_reserve<Coin1::T>();
+    Transaction::assert(v0 == 5*10000000000000 && v1 == 10*10000000000000 && v2 == 5*10000000000000, 107);
+
+    (v0, v1, v2) = Exchange::get_reserve<Coin2::T>();
+    Transaction::assert(v0 == 5*10000000000000 && v1 == 20*10000000000000 && v2 == 5*10000000000000, 108);
+}
+}
+
+
+
+//! new-transaction
+//! sender: a2
+script {
+use {{a0}}::Exchange;
+use 0x0::Coin1;
+
+fun main() {
+   Exchange::violas_to_token_swap_input<Coin1::T>(1*10000000000000, 0, 1000);
+}
+}
+
+// check: ABORTED 3013
+
+//! new-transaction
+//! sender: a2
+script {
+use {{a0}}::Exchange;
+use 0x0::Coin1;
+
+fun main() {
+   Exchange::violas_to_token_swap_input<Coin1::T>(1*10000000000000, 16624979156244 + 1, 1000);
+}
+}
+
+// check: ABORTED 3014
+
+//! new-transaction
+//! sender: a2
+script {
+use {{a0}}::Exchange;
+use 0x0::LBR;
+use 0x0::Coin1;
+use 0x0::Transaction;
+use 0x0::LibraAccount;
+fun main() {
+    let lbr_0 = LibraAccount::balance<LBR::T>(Transaction::sender());
+    let c1_0 = LibraAccount::balance<Coin1::T>(Transaction::sender());
+    Exchange::violas_to_token_swap_input<Coin1::T>(1*10000000000000, 1, 1000);
+    let (_, v1, v2) = Exchange::get_reserve<Coin1::T>();
+    Transaction::assert(v1 == 10*10000000000000 - 16624979156244, 109);
+    Transaction::assert(v2 == 5*10000000000000 + 1*10000000000000, 110);
+    let lbr_1 = LibraAccount::balance<LBR::T>(Transaction::sender());
+    let c1_1 = LibraAccount::balance<Coin1::T>(Transaction::sender());
+    Transaction::assert(lbr_0 == lbr_1 + 1*10000000000000, 111);
+    Transaction::assert(c1_0 == c1_1 - 16624979156244, 112);
+}
+}
+
+// check: EXECUTED
+
+
+//! new-transaction
+//! sender: a1
+script {
+use {{a0}}::Exchange;
+use 0x0::Transaction;
+use 0x0::Coin1;
+fun main() {
+    let liq_amt = Exchange::balance<Coin1::T>(Transaction::sender());
+    Exchange::remove_liquidity<Coin1::T>(liq_amt, 1, 1, 1000);
+    Exchange::add_liquidity<Coin1::T>(0, 10*10000000000000, 5*10000000000000, 1000);
+}
+}
+// check: EXECUTED
+
+//! new-transaction
+//! sender: a2
+script {
+use {{a0}}::Exchange;
+use 0x0::Coin1;
+fun main() {
+    Exchange::token_to_violas_swap_input<Coin1::T>(2*10000000000000,0, 1000);
+}
+}
+// check: ABORTED 3015
+
+//! new-transaction
+//! sender: a2
+script {
+use {{a0}}::Exchange;
+use 0x0::Coin1;
+fun main() {
+    Exchange::token_to_violas_swap_input<Coin1::T>(2*10000000000000, 8312489578122 + 1, 1000);
+}
+}
+// check: ABORTED 3016
+
+
+//! new-transaction
+//! sender: a2
+script {
+use {{a0}}::Exchange;
+use 0x0::LBR;
+use 0x0::Coin1;
+use 0x0::Transaction;
+use 0x0::LibraAccount;
+fun main() {
+    let lbr_0 = LibraAccount::balance<LBR::T>(Transaction::sender());
+    let c1_0 = LibraAccount::balance<Coin1::T>(Transaction::sender());
+    Exchange::token_to_violas_swap_input<Coin1::T>(2*10000000000000, 1, 1000);
+    let (_, v1, v2) = Exchange::get_reserve<Coin1::T>();
+    Transaction::assert(v1 == 10*10000000000000 + 2*10000000000000, 113);
+    Transaction::assert(v2 == 5*10000000000000 - 8312489578122, 114);
+    let lbr_1 = LibraAccount::balance<LBR::T>(Transaction::sender());
+    let c1_1 = LibraAccount::balance<Coin1::T>(Transaction::sender());
+    Transaction::assert(lbr_0 == lbr_1 - 8312489578122, 115);
+    Transaction::assert(c1_0 == c1_1 + 2*10000000000000, 116);
+}
+}
+// check: EXECUTED
+
+
+//! new-transaction
+//! sender: a1
+script {
+use {{a0}}::Exchange;
+use 0x0::Transaction;
+use 0x0::Coin1;
+use 0x0::Coin2;
+fun main() {
+    let liq_amt = Exchange::balance<Coin1::T>(Transaction::sender());
+    Exchange::remove_liquidity<Coin1::T>(liq_amt, 1, 1, 1000);
+    liq_amt = Exchange::balance<Coin2::T>(Transaction::sender());
+    Exchange::remove_liquidity<Coin2::T>(liq_amt, 1, 1, 1000);
+    Exchange::add_liquidity<Coin1::T>(0, 10*10000000000000, 5*10000000000000, 1000);
+    Exchange::add_liquidity<Coin2::T>(0, 20*10000000000000, 5*10000000000000, 1000);
+}
+}
+// check: EXECUTED
+
+
+//! new-transaction
+//! sender: a2
+
+script {
+use {{a0}}::Exchange;
+use 0x0::Transaction;
+use 0x0::LibraAccount;
+use 0x0::LBR;
+use 0x0::Coin1;
+use 0x0::Coin2;
+
+fun main() {
+    let lbr_0 = LibraAccount::balance<LBR::T>(Transaction::sender());
+    let c1_0 = LibraAccount::balance<Coin1::T>(Transaction::sender());
+    let c2_0 = LibraAccount::balance<Coin2::T>(Transaction::sender());
+
+    Exchange::token_to_token_swap_input<Coin1::T, Coin2::T>(2*10000000000000, 1, 1, 1000);
+    let (_, v01, v02) = Exchange::get_reserve<Coin1::T>();
+    Transaction::assert(v01 == 10*10000000000000 + 2*10000000000000, 911);
+    Transaction::assert(v02 == 5*10000000000000 - 8312489578122, 912);
+
+    let (_, v11, v12) = Exchange::get_reserve<Coin2::T>();
+    Transaction::assert(v11 == 20*10000000000000 - 28436782158339, 913);
+    Transaction::assert(v12 == 5*10000000000000 + 8312489578122, 914);
+
+    let lbr_1 = LibraAccount::balance<LBR::T>(Transaction::sender());
+    let c1_1 = LibraAccount::balance<Coin1::T>(Transaction::sender());
+    let c2_1 = LibraAccount::balance<Coin2::T>(Transaction::sender());
+    Transaction::assert(lbr_0 == lbr_1, 915);
+    Transaction::assert(c1_0 == c1_1 + 2*10000000000000, 916);
+    Transaction::assert(c2_0 == c2_1 - 28436782158339, 917);
+}
 }
