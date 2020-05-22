@@ -34,8 +34,6 @@ module LibraAccount {
         // Incremented by one each time a transaction is submitted
         sequence_number: u64,
         is_frozen: bool,
-        // The currency code string for the balance held by this account.
-        balance_currency_code: vector<u8>,
     }
 
     // A resource that holds the coins stored in this account
@@ -158,12 +156,19 @@ module LibraAccount {
         ) {
             // sanity check of signature validity
             Transaction::assert(Vector::length(&metadata_signature) == 64, 9001);
+            // message should be metadata | sender_address | amount | domain_separator
+            // separator is the UTF8-encoded string @$LIBRA_ATTEST$@
+            let domain_separator = x"2240244c494252415f4154544553544022";
+            let message = copy metadata;
+            Vector::append(&mut message, LCS::to_bytes(&sender));
+            Vector::append(&mut message, LCS::to_bytes(&deposit_value));
+            Vector::append(&mut message, domain_separator);
             // cryptographic check of signature validity
             Transaction::assert(
                 Signature::ed25519_verify(
                     metadata_signature,
-                    VASP::travel_rule_public_key(payee),
-                    copy metadata
+                    VASP::compliance_public_key(payee),
+                    message
                 ),
                 9002, // TODO: proper error code
             );
@@ -443,7 +448,6 @@ module LibraAccount {
                 sent_events: Event::new_event_handle_from_generator<SentPaymentEvent>(&mut generator),
                 sequence_number: 0,
                 is_frozen: false,
-                balance_currency_code: Libra::currency_code<Token>(),
             },
             generator,
             fresh_address,
