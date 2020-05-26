@@ -8,7 +8,8 @@ module Exchange {
     use 0x0::LibraTransactionTimeout;
     use 0x0::LibraAccount;
     use 0x0::Debug;
-
+    use 0x0::Vector;
+    
     // The liquidity token has a `CoinType` color that tells us what currency the
     // `value` inside represents.
     resource struct T<Token> { value: u64 }
@@ -46,6 +47,10 @@ module Exchange {
         sender: address,
     }
 
+    resource struct RegisteredCurrencies {
+        currency_codes: vector<vector<u8>>,
+    }
+
     resource struct ExchangeInfo {
         mint_events: Event::EventHandle<MintEvent>,
         burn_events: Event::EventHandle<BurnEvent>,
@@ -54,6 +59,9 @@ module Exchange {
 
     public fun initialize() {
         Transaction::assert(Transaction::sender() == singleton_addr(), 3000);
+        move_to_sender(RegisteredCurrencies {
+            currency_codes: Vector::empty()
+        });
         move_to_sender(ExchangeInfo {
             mint_events: Event::new_event_handle<MintEvent>(),
             burn_events: Event::new_event_handle<BurnEvent>(),
@@ -61,8 +69,14 @@ module Exchange {
         });
     }
 
-    public fun publish_reserve<CoinType>() {
-        Transaction::assert(Transaction::sender() == singleton_addr(), 3001);
+
+    public fun publish_reserve<CoinType>() acquires RegisteredCurrencies {
+        let sender = Transaction::sender();
+        Transaction::assert( sender == singleton_addr(), 3001);
+        let currency_code = Libra::currency_code<CoinType>();
+        let registered_currencies = borrow_global_mut<RegisteredCurrencies>(sender);
+        Vector::push_back(&mut registered_currencies.currency_codes, currency_code);
+
         move_to_sender<Reserve<CoinType>>(Reserve<CoinType> {
             liquidity_total_supply: 0,
             token: Libra::zero<CoinType>(),
@@ -128,6 +142,11 @@ module Exchange {
         let token_reserve = Libra::value<CoinType>(&reserve.token);
         let violas_reserve = Libra::value<LBR::T>(&reserve.violas);
         (reserve.liquidity_total_supply, token_reserve, violas_reserve)
+    }
+
+    public fun get_currencys() : vector<vector<u8>> acquires RegisteredCurrencies {
+        let registered_currencies = borrow_global_mut<RegisteredCurrencies>(singleton_addr());
+        *&registered_currencies.currency_codes
     }
 
     public fun add_liquidity<CoinType>(min_liquidity: u64, max_token_amount: u64, violas_amount: u64, deadline: u64) acquires T, Reserve, ExchangeInfo {
