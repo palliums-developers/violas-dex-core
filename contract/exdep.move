@@ -14,33 +14,24 @@ module ExDep {
     }
     
     struct MintEvent {
-        etype: u8,
-        ida: u64,
         coina: vector<u8>,
         deposit_amounta: u64,
-        idb: u64,
         coinb: vector<u8>,
         deposit_amountb: u64,
         mint_amount: u64,
     }
 
     struct BurnEvent {
-        etype: u8,
-        ida: u64,
         coina: vector<u8>,
         withdraw_amounta: u64,
-        idb: u64,
         coinb: vector<u8>,
         withdraw_amountb: u64,
         burn_amount: u64,
     }
 
     struct SwapEvent {
-        etype: u8,
-        input_id: u64,
         input_name: vector<u8>,
         input_amount: u64,
-        output_id: u64,
         output_name: vector<u8>,
         output_amount: u64,
     }
@@ -89,42 +80,33 @@ module ExDep {
         balance_for(borrow_global<Balance<Token>>(singleton_addr()))
     }
 
-    public fun c_m_event(v1: u64, v2: vector<u8>, v3: u64, v4: u64, v5: vector<u8>, v6: u64, v7: u64): MintEvent {
+    public fun c_m_event(v1: vector<u8>, v2: u64, v3: vector<u8>, v4: u64, v5: u64): MintEvent {
         MintEvent {
-            etype: 11,
-            ida: v1,
-            coina: v2,
-            deposit_amounta: v3,
-            idb: v4,
-            coinb: v5,
-            deposit_amountb: v6,
-            mint_amount: v7
+            coina: v1,
+            deposit_amounta: v2,
+            coinb: v3,
+            deposit_amountb: v4,
+            mint_amount: v5
         }
     }
 
-    public fun c_b_event(v1: u64, v2: vector<u8>, v3: u64, v4: u64, v5: vector<u8>, v6: u64, v7: u64): BurnEvent {
+    public fun c_b_event(v1: vector<u8>, v2: u64,v3: vector<u8>, v4: u64, v5: u64): BurnEvent {
         BurnEvent {
-            etype: 22,
-            ida: v1,
-            coina: v2,
-            withdraw_amounta: v3,
-            idb: v4,
-            coinb: v5,
-            withdraw_amountb: v6,
-            burn_amount: v7
+            coina: v1,
+            withdraw_amounta: v2,
+            coinb: v3,
+            withdraw_amountb: v4,
+            burn_amount: v5
         }
     }
 
 
-    public fun c_s_event(v1: u64, v2: vector<u8>, v3: u64, v4: u64, v5: vector<u8>, v6: u64): SwapEvent {
+    public fun c_s_event(v1: vector<u8>, v2: u64, v3: vector<u8>, v4: u64): SwapEvent {
         SwapEvent {
-            etype: 33,
-            input_id: v1,
-            input_name: v2,
-            input_amount: v3,
-            output_id: v4,
-            output_name: v5,
-            output_amount: v6,
+            input_name: v1,
+            input_amount: v2,
+            output_name: v3,
+            output_amount: v4,
         }
     }
 
