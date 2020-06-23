@@ -162,8 +162,9 @@ module Exchange {
         let token = get_token(id, tokens);
         let (liquidity, amounta, amountb) = ExDep::get_mint_liquidity(amounta_desired, amountb_desired, amounta_min, amountb_min, reservea, reserveb, total_supply);
         token.value = token.value + liquidity;
-
-        let mint_event = ExDep::c_m_event(ida, amounta, idb, amountb, liquidity);
+        let coina = Libra::currency_code<CoinA>();
+        let coinb = Libra::currency_code<CoinB>();
+        let mint_event = ExDep::c_m_event(ida, coina, amounta, idb, coinb, amountb, liquidity);
         let metadata = LCS::to_bytes<ExDep::MintEvent>(&mint_event);
         Debug::print(&mint_event);
         deposit<CoinA>(account, amounta, metadata);
@@ -201,7 +202,11 @@ module Exchange {
         reserve.coina.value = reservea - amounta;
         reserve.coinb.value = reserveb - amountb;
         token.value = token.value - liquidity;
-        let burn_event = ExDep::c_b_event(ida, amounta, idb, amountb, liquidity);
+
+        let coina = Libra::currency_code<CoinA>();
+        let coinb = Libra::currency_code<CoinB>();
+
+        let burn_event = ExDep::c_b_event(ida, coina, amounta, idb, coinb, amountb, liquidity);
         let metadata = LCS::to_bytes<ExDep::BurnEvent>(&burn_event);
         Debug::print(&burn_event);
         withdraw<CoinA>(account, amounta, metadata);
@@ -247,7 +252,9 @@ module Exchange {
             i = i + 1;
         };
         assert(amount_out >= amount_out_min, 5081);
-        let swap_event =  ExDep::c_s_event(ida, amount_in, idb, amount_out);
+        let coina = Libra::currency_code<CoinA>();
+        let coinb = Libra::currency_code<CoinB>();
+        let swap_event =  ExDep::c_s_event(ida, coina, amount_in, idb, coinb, amount_out);
         let metadata = LCS::to_bytes<ExDep::SwapEvent>(&swap_event);
         Debug::print(&swap_event);
         if(path0 < pathn){
