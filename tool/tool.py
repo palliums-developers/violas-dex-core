@@ -1,8 +1,15 @@
 
+import math
 
+reserves = [{"ida": 4, "amoaunta": 10*10**18, "idb": 6, "amoauntb": 20*10**18}, \
+            {"ida": 1, "amoaunta": 10*10**18, "idb": 3, "amoauntb": 20*10**18}, \
+            {"ida": 3, "amoaunta": 10*10**18, "idb": 6, "amoauntb": 40*10**18},\
+            {"ida": 0, "amoaunta": 5*10**18, "idb": 4, "amoauntb": 10*10**18},\
+            {"ida": 0, "amoaunta": 5*10**18, "idb": 1, "amoauntb": 10*10**18}]
 
-reserves = [{"ida": 0, "amoaunta": 5*10**18, "idb": 1, "amoauntb": 10*10**18}, {"ida": 1, "amoaunta": 10*10**18, "idb": 6, "amoauntb": 20*10**18}]
-
+def getPairs():
+    pairs = [(r['ida'], r['idb']) for r in reserves]
+    return pairs
 
 def getCurrencys():
     return ['Coin1', 'Coin2', 'VLSUSD', 'VLSEUR', 'VLSGBP', 'VLSJPY', 'VLSSGD']
@@ -26,7 +33,40 @@ def quote(amountA, reserveA, reserveB):
     amountB = amountA * reserveB // reserveA
     return amountB
 
-def getAmountOut(amountIn, reserveIn, reserveOut):
+def addLiquidity(ida, idb, amountADesired, amountBDesired, amountAMin, amountBMin, reserveA, reserveB, total_liquidity_supply):
+    (amounta, amountb) = (amountADesired, amountBDesired)
+    if reserveA > 0 or reserveB > 0:
+        amountbOptimal = quote(amountADesired, reserveA, reserveB);
+        if amountbOptimal <= amountBDesired:
+            assert amountbOptimal >= amountBMin
+            (amounta, amountb) = (amountADesired, amountbOptimal)
+        else:
+            amountaOptimal = quote(amountBDesired, reserveB, reserveA);
+            assert amountaOptimal <= amountADesired and amountaOptimal >= amountAMin
+            (amounta, amountb) = (amountaOptimal, amountBDesired)
+    new_liquidity = int(math.sqrt(amounta * amountb)) if total_liquidity_supply == 0 else \
+        int(min(amounta * total_liquidity_supply / reserveA, amountb * total_liquidity_supply / reserveB))
+    assert new_liquidity > 0
+    return (new_liquidity, amounta, amountb)
+
+def getOutputAmountWithoutFee(amountIn, reserveIn, reserveOut):
+    assert amountIn > 0 and reserveIn > 0 and reserveOut
+    amountOut = amountIn * reserveOut // ( reserveIn + amountIn);
+    return amountOut
+
+def getOutputAmountsWithoutFee(amountIn, path):
+    assert amountIn > 0 and len(path) >= 2
+    amounts = []
+    amounts.append(amountIn)
+    for i in range(len(path) - 1):
+        (reserveIn, reserveOut) = getReserves(path[i], path[i + 1])
+        assert reserveIn > 0 and reserveOut > 0
+        amountOut = getOutputAmountWithoutFee(amounts[i], reserveIn, reserveOut)
+        amounts.append(amountOut)
+    return amounts
+
+
+def getOutputAmount(amountIn, reserveIn, reserveOut):
     assert amountIn > 0 and reserveIn > 0 and reserveOut
     amountInWithFee = amountIn * 997;
     numerator = amountInWithFee * reserveOut;
@@ -34,35 +74,98 @@ def getAmountOut(amountIn, reserveIn, reserveOut):
     amountOut = numerator // denominator;
     return amountOut
 
-def getAmountIn(amountOut, reserveIn, reserveOut):
+def getInputAmount(amountOut, reserveIn, reserveOut):
     assert amountOut > 0 and reserveIn > 0 and reserveOut
     numerator = reserveIn * amountOut * 1000;
     denominator = (reserveOut - amountOut) * 997;
     amountIn = numerator // denominator + 1;
     return amountIn
 
-def getAmountsOut(amountIn, path):
+def getOutputAmounts(amountIn, path):
     assert amountIn > 0 and len(path) >= 2
     amounts = []
     amounts.append(amountIn)
-    for i in range(len(path)):
-        (reserveIn, reserveOut) = getReserves(path[i], path[i] + 1)
+    for i in range(len(path) - 1):
+        (reserveIn, reserveOut) = getReserves(path[i], path[i + 1])
         assert reserveIn > 0 and reserveOut > 0
-        amountOut = getAmountOut(amounts[i], reserveIn, reserveOut)
+        amountOut = getOutputAmount(amounts[i], reserveIn, reserveOut)
         amounts.append(amountOut)
     return amounts
 
-def getAmountsIn(amountOut, path):
+def getInputAmounts(amountOut, path):
     assert amountOut > 0 and len(path) >= 2
-    amounts = []
-    amounts.append(amountOut)
+    amounts = [None] * len(path)
+    amounts[len(path) - 1] = amountOut
     for i in range(len(path)-1, 0, -1):
         (reserveIn, reserveOut) = getReserves(path[i - 1], path[i])
         assert reserveIn > 0 and reserveOut > 0
-        amountIn = getAmountIn(amounts[i], reserveIn, reserveOut)
-        amounts.insert(0, amountIn)
+        amounts[i - 1] = getInputAmount(amounts[i], reserveIn, reserveOut)
     return amounts
+
+def bestTradeExactIn(pairs, idIn, idOut, amountIn, originalAmountIn, path = [], bestTrades = []):
+    assert len(pairs) > 0
+    assert originalAmountIn == amountIn or len(path) > 0
+    if len(path) == 0:
+        path.append(idIn)
+    for i in range(0, len(pairs)):
+        pair = pairs[i]
+        (reserveIn, reserveOut) = getReserves(pair[0], pair[1])
+        if pair[0] != idIn and pair[1] != idIn:
+            continue
+        if reserveIn == 0 or reserveOut == 0:
+            continue
+        amountOut = getOutputAmount(amountIn, reserveIn, reserveOut)
+        newIdIn = pair[1] if idIn == pair[0] else pair[0]
+        if idOut == pair[0] or idOut == pair[1]:
+            path.append(idOut)
+            bestTrades.append((path, amountOut))
+        elif len(pairs) > 1:
+            pairsExcludingThisPair = pairs[:]
+            del(pairsExcludingThisPair[i])
+            newPath = path + [newIdIn]
+            bestTradeExactIn(pairsExcludingThisPair, newIdIn, idOut, amountOut, originalAmountIn, newPath, bestTrades)
+        
+    return sorted(bestTrades, key=lambda k: k[1], reverse=True)
+
+
+def bestTradeExactOut(pairs, idIn, idOut, amountOut, originalAmountOut, path = [], bestTrades = []):
+    assert len(pairs) > 0
+    assert originalAmountOut == amountOut or len(path) > 0
+    if len(path) == 0:
+        path.append(idOut)
+    for i in range(0, len(pairs)):
+        pair = pairs[i]
+        (reserveIn, reserveOut) = getReserves(pair[0], pair[1])
+        if pair[0] != idOut and pair[1] != idOut:
+            continue
+        if reserveIn == 0 or reserveOut == 0:
+            continue
+        amountIn = getInputAmount(amountOut, reserveIn, reserveOut)
+        newIdOut = pair[1] if idOut == pair[0] else pair[0]
+        if idIn == pair[0] or idIn == pair[1]:
+            path.insert(0, idIn)
+            bestTrades.append((path, amountIn))
+        elif len(pairs) > 1:
+            pairsExcludingThisPair = pairs[:]
+            del(pairsExcludingThisPair[i])
+            newPath = [newIdOut] + path
+            bestTradeExactOut(pairsExcludingThisPair, idIn, newIdOut, amountIn, originalAmountOut, newPath, bestTrades)
+        
+    return sorted(bestTrades, key=lambda k: k[1], reverse=True)
 
 
 if __name__ == "__main__":
-    print(getAmountOut(10 ** 13, 83375020843756, 60000000000000))
+    print(addLiquidity(0, 1, 1*10**30, 2*10**30, 0, 0, 0, 0, 0))
+    print(addLiquidity(0, 1, 1*10**29, 2*10**29, 0, 0, 1*10**30, 2*10**30, 1414213562373094995304885780480))
+    pairs = getPairs()
+    trades = bestTradeExactIn(pairs, 0, 6, 1*10**18, 1*10**18)
+    print(trades)
+    print("xxxxx")
+    print(getOutputAmounts(1*10**18, trades[0][0]))
+    print(getOutputAmountsWithoutFee(1*10**18, trades[0][0]))
+    # print(getOutputAmounts(1*10**18, trades[1][0]))
+    # trades = bestTradeExactOut(pairs, 0, 6, 2843678215834080602, 2843678215834080602)
+    # print(trades)
+    # print("xxxxx")
+    # print(getInputAmounts(8835573573608139490, [0, 1, 3, 6]))
+    # print(getInputAmounts(2843678215834080602, [0, 4, 6]))
