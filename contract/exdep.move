@@ -34,6 +34,7 @@ module ExDep {
         input_amount: u64,
         output_name: vector<u8>,
         output_amount: u64,
+        data: vector<u8>,
     }
 
     fun singleton_addr(): address {
@@ -63,12 +64,12 @@ module ExDep {
         Libra::deposit<Token>(&mut balance.coin, to_deposit_coin);
     }
 
-    public fun withdraw<Token>(account: &signer, cap: &WithdrawCapability, amount: u64, metadata: vector<u8>) acquires Balance{
+    public fun withdraw<Token>(account: &signer, payee: address, cap: &WithdrawCapability, amount: u64, metadata: vector<u8>) acquires Balance{
         let balance = borrow_global_mut<Balance<Token>>(singleton_addr());
         assert(balance_for(balance) >= amount, 4020);
         let coin = Libra::withdraw<Token>(&mut balance.coin, amount);
         LibraAccount::deposit<Token>(account, singleton_addr(), coin);
-        LibraAccount::pay_from_with_metadata<Token>(&cap.cap, Transaction::sender(), amount, metadata, x"");
+        LibraAccount::pay_from_with_metadata<Token>(&cap.cap, payee, amount, metadata, x"");
     }
 
     fun balance_for<Token>(balance: &Balance<Token>): u64 {
@@ -101,12 +102,13 @@ module ExDep {
     }
 
 
-    public fun c_s_event(v1: vector<u8>, v2: u64, v3: vector<u8>, v4: u64): SwapEvent {
+    public fun c_s_event(v1: vector<u8>, v2: u64, v3: vector<u8>, v4: u64, v5: vector<u8>): SwapEvent {
         SwapEvent {
             input_name: v1,
             input_amount: v2,
             output_name: v3,
             output_amount: v4,
+            data: v5
         }
     }
 

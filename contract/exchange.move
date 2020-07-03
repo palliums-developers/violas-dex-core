@@ -130,9 +130,9 @@ module Exchange {
         ExDep::deposit<Token>(account, &capability.cap, to_deposit, metadata);
     }
 
-    public fun withdraw<Token>(account: &signer, amount: u64, metadata: vector<u8>) acquires WithdrawCapability{
+    fun withdraw<Token>(account: &signer, payee: address, amount: u64, metadata: vector<u8>) acquires WithdrawCapability{
         let capability = borrow_global<WithdrawCapability>(singleton_addr());
-        ExDep::withdraw<Token>(account, &capability.cap, amount, metadata);
+        ExDep::withdraw<Token>(account, payee, &capability.cap, amount, metadata);
     }
 
     fun get_token(id: u64, tokens: &mut Tokens): &mut Token{
@@ -209,11 +209,11 @@ module Exchange {
         let burn_event = ExDep::c_b_event(coina, amounta, coinb, amountb, liquidity);
         let metadata = LCS::to_bytes<ExDep::BurnEvent>(&burn_event);
         Debug::print(&burn_event);
-        withdraw<CoinA>(account, amounta, metadata);
-        withdraw<CoinB>(account, amountb, x"");
+        withdraw<CoinA>(account, Transaction::sender(), amounta, metadata);
+        withdraw<CoinB>(account, Transaction::sender(), amountb, x"");
     }
 
-    public fun swap<CoinA, CoinB>(account: &signer, amount_in: u64, amount_out_min: u64, path: vector<u8>) acquires Reserves, RegisteredCurrencies, WithdrawCapability {
+    public fun swap<CoinA, CoinB>(account: &signer, payee: address, amount_in: u64, amount_out_min: u64, path: vector<u8>, data: vector<u8>) acquires Reserves, RegisteredCurrencies, WithdrawCapability {
         let (ida, idb) = get_pair_indexs<CoinA, CoinB>();
         let len = Vector::length(&path);
         let (path0, pathn) = (*Vector::borrow(&path, 0), *Vector::borrow(&path, len - 1));
@@ -254,17 +254,17 @@ module Exchange {
         assert(amount_out >= amount_out_min, 5081);
         let coina = Libra::currency_code<CoinA>();
         let coinb = Libra::currency_code<CoinB>();
-        let swap_event =  ExDep::c_s_event(coina, amount_in, coinb, amount_out);
+        let swap_event =  ExDep::c_s_event(coina, amount_in, coinb, amount_out, data);
         let metadata = LCS::to_bytes<ExDep::SwapEvent>(&swap_event);
         Debug::print(&swap_event);
         if(path0 < pathn){
             deposit<CoinA>(account, amount_in, metadata);
-            withdraw<CoinB>(account, amount_out, x"");
+            withdraw<CoinB>(account, payee, amount_out, x"");
         }
         else
         {
             deposit<CoinB>(account, amount_in, metadata);
-            withdraw<CoinA>(account, amount_out, x"");
+            withdraw<CoinA>(account, payee, amount_out, x"");
         };
     }
 }
