@@ -14,7 +14,7 @@ def getPairs():
 def getCurrencys():
     return ['Coin1', 'Coin2', 'VLSUSD', 'VLSEUR', 'VLSGBP', 'VLSJPY', 'VLSSGD']
 
-def getReserves(CoinA, CoinB):
+def getReserve(CoinA, CoinB):
     (id1, id2) = (CoinA, CoinB)
     sw_flag = False
     if id1 > id2:
@@ -33,7 +33,7 @@ def quote(amountA, reserveA, reserveB):
     amountB = amountA * reserveB // reserveA
     return amountB
 
-def addLiquidity(ida, idb, amountADesired, amountBDesired, amountAMin, amountBMin, reserveA, reserveB, total_liquidity_supply):
+def addLiquidity(amountADesired, amountBDesired, amountAMin, amountBMin, reserveA, reserveB, total_liquidity_supply):
     (amounta, amountb) = (amountADesired, amountBDesired)
     if reserveA > 0 or reserveB > 0:
         amountbOptimal = quote(amountADesired, reserveA, reserveB);
@@ -49,6 +49,14 @@ def addLiquidity(ida, idb, amountADesired, amountBDesired, amountAMin, amountBMi
     assert new_liquidity > 0
     return (new_liquidity, amounta, amountb)
 
+def removeLiquidity(liquidity, amounta_min, amountb_min, reservea, reserveb, total_liquidity_supply):
+    amounta = liquidity * reservea // total_liquidity_supply
+    amountb = liquidity * reserveb // total_liquidity_supply
+    assert amounta >= amounta_min and amountb >= amountb_min
+    return (amounta, amountb)
+
+    
+
 def getOutputAmountWithoutFee(amountIn, reserveIn, reserveOut):
     assert amountIn > 0 and reserveIn > 0 and reserveOut
     amountOut = amountIn * reserveOut // ( reserveIn + amountIn);
@@ -59,7 +67,7 @@ def getOutputAmountsWithoutFee(amountIn, path):
     amounts = []
     amounts.append(amountIn)
     for i in range(len(path) - 1):
-        (reserveIn, reserveOut) = getReserves(path[i], path[i + 1])
+        (reserveIn, reserveOut) = getReserve(path[i], path[i + 1])
         assert reserveIn > 0 and reserveOut > 0
         amountOut = getOutputAmountWithoutFee(amounts[i], reserveIn, reserveOut)
         amounts.append(amountOut)
@@ -86,7 +94,7 @@ def getOutputAmounts(amountIn, path):
     amounts = []
     amounts.append(amountIn)
     for i in range(len(path) - 1):
-        (reserveIn, reserveOut) = getReserves(path[i], path[i + 1])
+        (reserveIn, reserveOut) = getReserve(path[i], path[i + 1])
         assert reserveIn > 0 and reserveOut > 0
         amountOut = getOutputAmount(amounts[i], reserveIn, reserveOut)
         amounts.append(amountOut)
@@ -97,19 +105,21 @@ def getInputAmounts(amountOut, path):
     amounts = [None] * len(path)
     amounts[len(path) - 1] = amountOut
     for i in range(len(path)-1, 0, -1):
-        (reserveIn, reserveOut) = getReserves(path[i - 1], path[i])
+        (reserveIn, reserveOut) = getReserve(path[i - 1], path[i])
         assert reserveIn > 0 and reserveOut > 0
         amounts[i - 1] = getInputAmount(amounts[i], reserveIn, reserveOut)
     return amounts
 
-def bestTradeExactIn(pairs, idIn, idOut, amountIn, originalAmountIn, path = [], bestTrades = []):
+def bestTradeExactIn(pairs, idIn, idOut, amountIn, originalAmountIn, path = [], bestTrades = None):
     assert len(pairs) > 0
     assert originalAmountIn == amountIn or len(path) > 0
     if len(path) == 0:
         path.append(idIn)
+    if bestTrades is None:
+        bestTrades = []
     for i in range(0, len(pairs)):
         pair = pairs[i]
-        (reserveIn, reserveOut) = getReserves(pair[0], pair[1])
+        (reserveIn, reserveOut) = getReserve(pair[0], pair[1])
         if pair[0] != idIn and pair[1] != idIn:
             continue
         if reserveIn == 0 or reserveOut == 0:
@@ -128,14 +138,16 @@ def bestTradeExactIn(pairs, idIn, idOut, amountIn, originalAmountIn, path = [], 
     return sorted(bestTrades, key=lambda k: k[1], reverse=True)
 
 
-def bestTradeExactOut(pairs, idIn, idOut, amountOut, originalAmountOut, path = [], bestTrades = []):
+def bestTradeExactOut(pairs, idIn, idOut, amountOut, originalAmountOut, path = [], bestTrades = None):
     assert len(pairs) > 0
     assert originalAmountOut == amountOut or len(path) > 0
     if len(path) == 0:
         path.append(idOut)
+    if bestTrades is None:
+        bestTrades = []
     for i in range(0, len(pairs)):
         pair = pairs[i]
-        (reserveIn, reserveOut) = getReserves(pair[0], pair[1])
+        (reserveIn, reserveOut) = getReserve(pair[0], pair[1])
         if pair[0] != idOut and pair[1] != idOut:
             continue
         if reserveIn == 0 or reserveOut == 0:
@@ -151,21 +163,20 @@ def bestTradeExactOut(pairs, idIn, idOut, amountOut, originalAmountOut, path = [
             newPath = [newIdOut] + path
             bestTradeExactOut(pairsExcludingThisPair, idIn, newIdOut, amountIn, originalAmountOut, newPath, bestTrades)
         
-    return sorted(bestTrades, key=lambda k: k[1], reverse=True)
+    return sorted(bestTrades, key=lambda k: k[1], reverse=False)
 
 
 if __name__ == "__main__":
-    print(addLiquidity(0, 1, 1*10**30, 2*10**30, 0, 0, 0, 0, 0))
-    print(addLiquidity(0, 1, 1*10**29, 2*10**29, 0, 0, 1*10**30, 2*10**30, 1414213562373094995304885780480))
-    pairs = getPairs()
-    trades = bestTradeExactIn(pairs, 0, 6, 1*10**18, 1*10**18)
-    print(trades)
-    print("xxxxx")
-    print(getOutputAmounts(1*10**18, trades[0][0]))
-    print(getOutputAmountsWithoutFee(1*10**18, trades[0][0]))
+    # print(addLiquidity(0, 1, 1*10**30, 2*10**30, 0, 0, 0, 0, 0))
+    # print(addLiquidity(0, 1, 1*10**29, 2*10**29, 0, 0, 1*10**30, 2*10**30, 1414213562373094995304885780480))
+    # pairs = getPairs()
+    # trades = bestTradeExactIn(pairs, 0, 6, 1*10**18, 1*10**18)
+    # trades = bestTradeExactIn(pairs, 0, 6, 1*10**18, 1*10**18)
+    # print(trades)
+    # print("xxxxx")
+    # print(getOutputAmounts(1*10**18, trades[0][0]))
+    # print(getOutputAmountsWithoutFee(1*10**18, trades[0][0]))
     # print(getOutputAmounts(1*10**18, trades[1][0]))
     # trades = bestTradeExactOut(pairs, 0, 6, 2843678215834080602, 2843678215834080602)
     # print(trades)
-    # print("xxxxx")
-    # print(getInputAmounts(8835573573608139490, [0, 1, 3, 6]))
-    # print(getInputAmounts(2843678215834080602, [0, 4, 6]))
+    print(addLiquidity(0, 1, 100, 200, 0, 0, 100, 200, 141))
