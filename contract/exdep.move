@@ -2,7 +2,7 @@ address 0x7257c2417e4d1038e1817c8f283ace2e {
 module ExDep {
     use 0x1::Libra::{Self, Libra};
     use 0x1::LibraAccount;
-    use 0x1::Transaction;
+    use 0x1::Signer;
 
     // A resource that holds the coins stored in this account
     resource struct Balance<Token> {
@@ -42,7 +42,7 @@ module ExDep {
     }
 
     public fun extract_withdraw_capability(sender: &signer): WithdrawCapability {
-        assert(Transaction::sender() == singleton_addr(), 4000);
+        assert(Signer::address_of(sender) == singleton_addr(), 4000);
         WithdrawCapability {
             cap: LibraAccount::extract_withdraw_capability(sender),
         }
@@ -50,7 +50,7 @@ module ExDep {
 
     // Add a balance of `Token` type to the sending account.
     public fun add_currency<Token>(account: &signer) {
-        assert(Transaction::sender() == singleton_addr(), 4010);
+        assert(Signer::address_of(account)  == singleton_addr(), 4010);
         move_to(account, Balance<Token>{ coin: Libra::zero<Token>() })
     }
 

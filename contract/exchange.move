@@ -1,7 +1,7 @@
 address 0x7257c2417e4d1038e1817c8f283ace2e {
 
 module Exchange {
-    use 0x1::Transaction;
+    use 0x1::Signer;
     use 0x1::LibraAccount;
     use 0x1::Libra;
     use 0x1::Vector;
@@ -41,14 +41,14 @@ module Exchange {
     }
 
     public fun initialize(sender: &signer) {
-        assert(Transaction::sender() == singleton_addr(), 5000);
-        move_to_sender(Reserves {
+        assert(Signer::address_of(sender) == singleton_addr(), 5000);
+        move_to(sender, Reserves {
             reserves: Vector::empty()
         });
-        move_to_sender(RegisteredCurrencies {
+        move_to(sender, RegisteredCurrencies {
             currency_codes: Vector::empty()
         });
-        move_to_sender(WithdrawCapability {
+        move_to(sender, WithdrawCapability {
             cap: ExDep::extract_withdraw_capability(sender)
         });
     }
@@ -153,9 +153,9 @@ module Exchange {
     }
 
     fun mint<CoinA, CoinB>(account: &signer, ida: u64, idb: u64, amounta_desired: u64, amountb_desired: u64, amounta_min: u64, amountb_min: u64, reservea: u64, reserveb: u64, total_supply: u64): (u64, u64, u64) acquires Tokens, WithdrawCapability {
-        let sender = Transaction::sender();
+        let sender = Signer::address_of(account);
         if(!exists<Tokens>(sender)){
-            move_to_sender<Tokens>(Tokens { tokens: Vector::empty() });
+            move_to(account, Tokens { tokens: Vector::empty() });
         };
         let id = (ida << 32) + idb;
         let tokens = borrow_global_mut<Tokens>(sender);
@@ -192,7 +192,7 @@ module Exchange {
         let (ida, idb) = get_pair_indexs<CoinA, CoinB>();
         let reserve = get_reserve_internal(ida, idb, reserves);
         let (total_supply, reservea, reserveb) = (reserve.liquidity_total_supply, reserve.coina.value, reserve.coinb.value);
-        let tokens = borrow_global_mut<Tokens>(Transaction::sender());
+        let tokens = borrow_global_mut<Tokens>(Signer::address_of(account));
         let id = (ida << 32) + idb;
         let token = get_token(id, tokens);
         let amounta = ((liquidity as u128) * (reservea as u128) / (total_supply  as u128) as u64);
@@ -209,8 +209,8 @@ module Exchange {
         let burn_event = ExDep::c_b_event(coina, amounta, coinb, amountb, liquidity);
         let metadata = LCS::to_bytes<ExDep::BurnEvent>(&burn_event);
         Debug::print(&burn_event);
-        withdraw<CoinA>(account, Transaction::sender(), amounta, metadata);
-        withdraw<CoinB>(account, Transaction::sender(), amountb, x"");
+        withdraw<CoinA>(account, Signer::address_of(account), amounta, metadata);
+        withdraw<CoinB>(account, Signer::address_of(account), amountb, x"");
     }
 
     public fun swap<CoinA, CoinB>(account: &signer, payee: address, amount_in: u64, amount_out_min: u64, path: vector<u8>, data: vector<u8>) acquires Reserves, RegisteredCurrencies, WithdrawCapability {

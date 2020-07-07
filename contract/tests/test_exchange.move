@@ -9,7 +9,7 @@
 module ExDep {
     use 0x1::Libra::{Self, Libra};
     use 0x1::LibraAccount;
-    use 0x1::Transaction;
+    use 0x1::Signer;
 
     // A resource that holds the coins stored in this account
     resource struct Balance<Token> {
@@ -41,6 +41,7 @@ module ExDep {
         input_amount: u64,
         output_name: vector<u8>,
         output_amount: u64,
+        data: vector<u8>,
     }
 
     fun singleton_addr(): address {
@@ -48,7 +49,7 @@ module ExDep {
     }
 
     public fun extract_withdraw_capability(sender: &signer): WithdrawCapability {
-        assert(Transaction::sender() == singleton_addr(), 4000);
+        assert(Signer::address_of(sender) == singleton_addr(), 4000);
         WithdrawCapability {
             cap: LibraAccount::extract_withdraw_capability(sender),
         }
@@ -56,7 +57,7 @@ module ExDep {
 
     // Add a balance of `Token` type to the sending account.
     public fun add_currency<Token>(account: &signer) {
-        assert(Transaction::sender() == singleton_addr(), 4010);
+        assert(Signer::address_of(account)  == singleton_addr(), 4010);
         move_to(account, Balance<Token>{ coin: Libra::zero<Token>() })
     }
 
@@ -70,12 +71,12 @@ module ExDep {
         Libra::deposit<Token>(&mut balance.coin, to_deposit_coin);
     }
 
-    public fun withdraw<Token>(account: &signer, cap: &WithdrawCapability, amount: u64, metadata: vector<u8>) acquires Balance{
+    public fun withdraw<Token>(account: &signer, payee: address, cap: &WithdrawCapability, amount: u64, metadata: vector<u8>) acquires Balance{
         let balance = borrow_global_mut<Balance<Token>>(singleton_addr());
         assert(balance_for(balance) >= amount, 4020);
         let coin = Libra::withdraw<Token>(&mut balance.coin, amount);
         LibraAccount::deposit<Token>(account, singleton_addr(), coin);
-        LibraAccount::pay_from_with_metadata<Token>(&cap.cap, Transaction::sender(), amount, metadata, x"");
+        LibraAccount::pay_from_with_metadata<Token>(&cap.cap, payee, amount, metadata, x"");
     }
 
     fun balance_for<Token>(balance: &Balance<Token>): u64 {
@@ -108,12 +109,13 @@ module ExDep {
     }
 
 
-    public fun c_s_event(v1: vector<u8>, v2: u64, v3: vector<u8>, v4: u64): SwapEvent {
+    public fun c_s_event(v1: vector<u8>, v2: u64, v3: vector<u8>, v4: u64, v5: vector<u8>): SwapEvent {
         SwapEvent {
             input_name: v1,
             input_amount: v2,
             output_name: v3,
             output_amount: v4,
+            data: v5
         }
     }
 
@@ -188,10 +190,11 @@ module ExDep {
     }
 }
 
+
 //! new-transaction
 //! sender: super
 module Exchange {
-    use 0x1::Transaction;
+    use 0x1::Signer;
     use 0x1::LibraAccount;
     use 0x1::Libra;
     use 0x1::Vector;
@@ -231,21 +234,20 @@ module Exchange {
     }
 
     public fun initialize(sender: &signer) {
-        assert(Transaction::sender() == singleton_addr(), 5000);
-        move_to_sender(Reserves {
+        assert(Signer::address_of(sender) == singleton_addr(), 5000);
+        move_to(sender, Reserves {
             reserves: Vector::empty()
         });
-        move_to_sender(RegisteredCurrencies {
+        move_to(sender, RegisteredCurrencies {
             currency_codes: Vector::empty()
         });
-        move_to_sender(WithdrawCapability {
+        move_to(sender, WithdrawCapability {
             cap: ExDep::extract_withdraw_capability(sender)
         });
     }
 
     // Add a balance of `Token` type to the sending account.
     public fun add_currency<Token>(account: &signer) acquires RegisteredCurrencies {
-        assert(Transaction::sender() == singleton_addr(), 5000);
         let currency_code = Libra::currency_code<Token>();
         let registered_currencies = borrow_global_mut<RegisteredCurrencies>(singleton_addr());
         Vector::push_back(&mut registered_currencies.currency_codes, currency_code);
@@ -321,9 +323,9 @@ module Exchange {
         ExDep::deposit<Token>(account, &capability.cap, to_deposit, metadata);
     }
 
-    public fun withdraw<Token>(account: &signer, amount: u64, metadata: vector<u8>) acquires WithdrawCapability{
+    fun withdraw<Token>(account: &signer, payee: address, amount: u64, metadata: vector<u8>) acquires WithdrawCapability{
         let capability = borrow_global<WithdrawCapability>(singleton_addr());
-        ExDep::withdraw<Token>(account, &capability.cap, amount, metadata);
+        ExDep::withdraw<Token>(account, payee, &capability.cap, amount, metadata);
     }
 
     fun get_token(id: u64, tokens: &mut Tokens): &mut Token{
@@ -344,9 +346,9 @@ module Exchange {
     }
 
     fun mint<CoinA, CoinB>(account: &signer, ida: u64, idb: u64, amounta_desired: u64, amountb_desired: u64, amounta_min: u64, amountb_min: u64, reservea: u64, reserveb: u64, total_supply: u64): (u64, u64, u64) acquires Tokens, WithdrawCapability {
-        let sender = Transaction::sender();
+        let sender = Signer::address_of(account);
         if(!exists<Tokens>(sender)){
-            move_to_sender<Tokens>(Tokens { tokens: Vector::empty() });
+            move_to(account, Tokens { tokens: Vector::empty() });
         };
         let id = (ida << 32) + idb;
         let tokens = borrow_global_mut<Tokens>(sender);
@@ -383,7 +385,7 @@ module Exchange {
         let (ida, idb) = get_pair_indexs<CoinA, CoinB>();
         let reserve = get_reserve_internal(ida, idb, reserves);
         let (total_supply, reservea, reserveb) = (reserve.liquidity_total_supply, reserve.coina.value, reserve.coinb.value);
-        let tokens = borrow_global_mut<Tokens>(Transaction::sender());
+        let tokens = borrow_global_mut<Tokens>(Signer::address_of(account));
         let id = (ida << 32) + idb;
         let token = get_token(id, tokens);
         let amounta = ((liquidity as u128) * (reservea as u128) / (total_supply  as u128) as u64);
@@ -400,11 +402,11 @@ module Exchange {
         let burn_event = ExDep::c_b_event(coina, amounta, coinb, amountb, liquidity);
         let metadata = LCS::to_bytes<ExDep::BurnEvent>(&burn_event);
         Debug::print(&burn_event);
-        withdraw<CoinA>(account, amounta, metadata);
-        withdraw<CoinB>(account, amountb, x"");
+        withdraw<CoinA>(account, Signer::address_of(account), amounta, metadata);
+        withdraw<CoinB>(account, Signer::address_of(account), amountb, x"");
     }
 
-    public fun swap<CoinA, CoinB>(account: &signer, amount_in: u64, amount_out_min: u64, path: vector<u8>) acquires Reserves, RegisteredCurrencies, WithdrawCapability {
+    public fun swap<CoinA, CoinB>(account: &signer, payee: address, amount_in: u64, amount_out_min: u64, path: vector<u8>, data: vector<u8>) acquires Reserves, RegisteredCurrencies, WithdrawCapability {
         let (ida, idb) = get_pair_indexs<CoinA, CoinB>();
         let len = Vector::length(&path);
         let (path0, pathn) = (*Vector::borrow(&path, 0), *Vector::borrow(&path, len - 1));
@@ -445,17 +447,17 @@ module Exchange {
         assert(amount_out >= amount_out_min, 5081);
         let coina = Libra::currency_code<CoinA>();
         let coinb = Libra::currency_code<CoinB>();
-        let swap_event =  ExDep::c_s_event(coina, amount_in, coinb, amount_out);
+        let swap_event =  ExDep::c_s_event(coina, amount_in, coinb, amount_out, data);
         let metadata = LCS::to_bytes<ExDep::SwapEvent>(&swap_event);
         Debug::print(&swap_event);
         if(path0 < pathn){
             deposit<CoinA>(account, amount_in, metadata);
-            withdraw<CoinB>(account, amount_out, x"");
+            withdraw<CoinB>(account, payee, amount_out, x"");
         }
         else
         {
             deposit<CoinB>(account, amount_in, metadata);
-            withdraw<CoinA>(account, amount_out, x"");
+            withdraw<CoinA>(account, payee, amount_out, x"");
         };
     }
 }
@@ -476,7 +478,6 @@ fun main(account: &signer) {
 }
 }
 // check: EXECUTED
-
 
 
 //! new-transaction
@@ -505,6 +506,7 @@ fun main(account: &signer) {
 }
 }
 // check: EXECUTED
+
 
 
 //! new-transaction
@@ -659,6 +661,7 @@ use 0x1::Coin1::Coin1;
 use 0x1::Coin2::Coin2;
 use 0x1::LibraAccount;
 use 0x1::Vector;
+use 0x1::Signer;
 
 fun main(account: &signer) {
     let c1 = LibraAccount::balance<Coin1>({{a1}});
@@ -667,7 +670,7 @@ fun main(account: &signer) {
     let path = Vector::empty<u8>();
     Vector::push_back(&mut path, 1);
     Vector::push_back(&mut path, 2);
-    Exchange::swap<Coin1, Coin2>(account, 10000000000000, 0, path);
+    Exchange::swap<Coin1, Coin2>(account, Signer::address_of(account), 10000000000000, 0, path, Vector::empty<u8>());
     let liq_ba = Exchange::get_liquidity_balance<Coin1, Coin2>({{a0}});
     let c11 = LibraAccount::balance<Coin1>({{a1}});
     let c22 = LibraAccount::balance<Coin2>({{a1}});
@@ -678,7 +681,7 @@ fun main(account: &signer) {
     let path1 = Vector::empty<u8>();
     Vector::push_back(&mut path1, 2);
     Vector::push_back(&mut path1, 1);
-    Exchange::swap<Coin1, Coin2>(account, 10000000000000, 0, path1);
+    Exchange::swap<Coin1, Coin2>(account, Signer::address_of(account), 10000000000000, 0, path1, Vector::empty<u8>());
     let c111 = LibraAccount::balance<Coin1>({{a1}});
     let c222 = LibraAccount::balance<Coin2>({{a1}});
     let (_, c333, c444) = Exchange::get_reserve<Coin1, Coin2>();
@@ -732,19 +735,20 @@ use {{super}}::Exchange;
 use 0x1::LBR::LBR;
 use 0x1::Coin2::Coin2;
 use 0x1::Vector;
+use 0x1::Signer;
 
 fun main(account: &signer) {
     let path = Vector::empty<u8>();
     Vector::push_back(&mut path, 0);
     Vector::push_back(&mut path, 1);
     Vector::push_back(&mut path, 2);
-    Exchange::swap<LBR, Coin2>(account, 10000000000000, 0, path);
+    Exchange::swap<LBR, Coin2>(account, Signer::address_of(account), 10000000000000, 0, path, Vector::empty<u8>());
 
     let path1 = Vector::empty<u8>();
     Vector::push_back(&mut path1, 2);
     Vector::push_back(&mut path1, 1);
     Vector::push_back(&mut path1, 0);
-    Exchange::swap<LBR, Coin2>(account, 10000000000000, 0, path1);
+    Exchange::swap<LBR, Coin2>(account, Signer::address_of(account), 10000000000000, 0, path1, Vector::empty<u8>());
 
 }
 }

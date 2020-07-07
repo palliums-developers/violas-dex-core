@@ -179,4 +179,4 @@ if __name__ == "__main__":
     # print(getOutputAmounts(1*10**18, trades[1][0]))
     # trades = bestTradeExactOut(pairs, 0, 6, 2843678215834080602, 2843678215834080602)
     # print(trades)
-    print(addLiquidity(0, 1, 100, 200, 0, 0, 100, 200, 141))
+    print(addLiquidity(2, 200, 0, 0, 0, 0, 0))
