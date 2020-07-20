@@ -1,11 +1,13 @@
 
 import math
 
-reserves = [{"ida": 4, "amoaunta": 10*10**18, "idb": 6, "amoauntb": 20*10**18}, \
-            {"ida": 1, "amoaunta": 10*10**18, "idb": 3, "amoauntb": 20*10**18}, \
-            {"ida": 3, "amoaunta": 10*10**18, "idb": 6, "amoauntb": 40*10**18},\
-            {"ida": 0, "amoaunta": 5*10**18, "idb": 4, "amoauntb": 10*10**18},\
-            {"ida": 0, "amoaunta": 5*10**18, "idb": 1, "amoauntb": 10*10**18}]
+# reserves = [{"ida": 4, "amoaunta": 10*10**18, "idb": 6, "amoauntb": 20*10**18}, \
+#             {"ida": 1, "amoaunta": 10*10**18, "idb": 3, "amoauntb": 20*10**18}, \
+#             {"ida": 3, "amoaunta": 10*10**18, "idb": 6, "amoauntb": 40*10**18},\
+#             {"ida": 0, "amoaunta": 5*10**18, "idb": 4, "amoauntb": 10*10**18},\
+#             {"ida": 0, "amoaunta": 5*10**18, "idb": 1, "amoauntb": 10*10**18}]
+
+reserves = [{"ida": 1, "amoaunta": 50000000000000+10000000000000, "idb": 2, "amoauntb": 100000000000000-16662499791656}]
 
 def getPairs():
     pairs = [(r['ida'], r['idb']) for r in reserves]
@@ -76,16 +78,16 @@ def getOutputAmountsWithoutFee(amountIn, path):
 
 def getOutputAmount(amountIn, reserveIn, reserveOut):
     assert amountIn > 0 and reserveIn > 0 and reserveOut
-    amountInWithFee = amountIn * 997;
+    amountInWithFee = amountIn * 9997;
     numerator = amountInWithFee * reserveOut;
-    denominator = reserveIn * 1000 + amountInWithFee;
+    denominator = reserveIn * 10000 + amountInWithFee;
     amountOut = numerator // denominator;
     return amountOut
 
 def getInputAmount(amountOut, reserveIn, reserveOut):
     assert amountOut > 0 and reserveIn > 0 and reserveOut
-    numerator = reserveIn * amountOut * 1000;
-    denominator = (reserveOut - amountOut) * 997;
+    numerator = reserveIn * amountOut * 10000;
+    denominator = (reserveOut - amountOut) * 9997;
     amountIn = numerator // denominator + 1;
     return amountIn
 
@@ -124,7 +126,10 @@ def bestTradeExactIn(pairs, idIn, idOut, amountIn, originalAmountIn, path = [], 
             continue
         if reserveIn == 0 or reserveOut == 0:
             continue
-        amountOut = getOutputAmount(amountIn, reserveIn, reserveOut)
+        if pair[0] == idIn:
+            amountOut = getOutputAmount(amountIn, reserveIn, reserveOut)
+        if pair[1] == idIn:
+            amountOut = getOutputAmount(amountIn, reserveOut, reserveIn)
         newIdIn = pair[1] if idIn == pair[0] else pair[0]
         if idOut == pair[0] or idOut == pair[1]:
             path.append(idOut)
@@ -152,7 +157,11 @@ def bestTradeExactOut(pairs, idIn, idOut, amountOut, originalAmountOut, path = [
             continue
         if reserveIn == 0 or reserveOut == 0:
             continue
-        amountIn = getInputAmount(amountOut, reserveIn, reserveOut)
+        if pair[0] == idOut:
+            amountIn = getInputAmount(amountOut, reserveOut, reserveIn)
+        if pair[1] == idOut:
+            amountIn = getInputAmount(amountOut, reserveIn, reserveOut)
+        
         newIdOut = pair[1] if idOut == pair[0] else pair[0]
         if idIn == pair[0] or idIn == pair[1]:
             path.insert(0, idIn)
@@ -169,14 +178,14 @@ def bestTradeExactOut(pairs, idIn, idOut, amountOut, originalAmountOut, path = [
 if __name__ == "__main__":
     # print(addLiquidity(0, 1, 1*10**30, 2*10**30, 0, 0, 0, 0, 0))
     # print(addLiquidity(0, 1, 1*10**29, 2*10**29, 0, 0, 1*10**30, 2*10**30, 1414213562373094995304885780480))
-    # pairs = getPairs()
+    pairs = getPairs()
+    trades = bestTradeExactOut(pairs, 2, 1, 10000000000000, 10000000000000)
     # trades = bestTradeExactIn(pairs, 0, 6, 1*10**18, 1*10**18)
-    # trades = bestTradeExactIn(pairs, 0, 6, 1*10**18, 1*10**18)
-    # print(trades)
+    print(trades)
     # print("xxxxx")
     # print(getOutputAmounts(1*10**18, trades[0][0]))
     # print(getOutputAmountsWithoutFee(1*10**18, trades[0][0]))
     # print(getOutputAmounts(1*10**18, trades[1][0]))
     # trades = bestTradeExactOut(pairs, 0, 6, 2843678215834080602, 2843678215834080602)
     # print(trades)
-    print(addLiquidity(2, 200, 0, 0, 0, 0, 0))
+    # print(addLiquidity(2, 200, 0, 0, 0, 0, 0))

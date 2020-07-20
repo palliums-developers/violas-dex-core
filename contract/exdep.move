@@ -1,18 +1,29 @@
-address 0x7257c2417e4d1038e1817c8f283ace2e {
+address 0x1 {
 module ExDep {
     use 0x1::Libra::{Self, Libra};
     use 0x1::LibraAccount;
     use 0x1::Signer;
+    use 0x1::Debug;
+    use 0x1::LCS;
+    use 0x1::CoreAddresses;
+    use 0x1::Event::{Self, EventHandle};
+
+    resource struct EventInfo {
+        events: EventHandle<Event>,
+        factor1: u128,
+        factor2: u128,
+    }
 
     // A resource that holds the coins stored in this account
     resource struct Balance<Token> {
         coin: Libra<Token>,
     }
 
-    resource struct WithdrawCapability {
-        cap: LibraAccount::WithdrawCapability,
+    struct Event {
+        etype: u64,
+        data: vector<u8>,
     }
-    
+
     struct MintEvent {
         coina: vector<u8>,
         deposit_amounta: u64,
@@ -38,14 +49,14 @@ module ExDep {
     }
 
     fun singleton_addr(): address {
-        0x7257c2417e4d1038e1817c8f283ace2e
+        CoreAddresses::ASSOCIATION_ROOT_ADDRESS()
     }
 
-    public fun extract_withdraw_capability(sender: &signer): WithdrawCapability {
-        assert(Signer::address_of(sender) == singleton_addr(), 4000);
-        WithdrawCapability {
-            cap: LibraAccount::extract_withdraw_capability(sender),
-        }
+    public fun initialize(account: &signer) {
+        assert(Signer::address_of(account)  == singleton_addr(), 4010);
+        move_to(account, EventInfo{ events: Event::new_event_handle<Event>(account),
+                        factor1: 9997,
+                        factor2: 10000 })
     }
 
     // Add a balance of `Token` type to the sending account.
@@ -54,22 +65,20 @@ module ExDep {
         move_to(account, Balance<Token>{ coin: Libra::zero<Token>() })
     }
 
-    public fun deposit<Token>(account: &signer, cap: &WithdrawCapability, to_deposit: u64, metadata: vector<u8>) acquires Balance {
+    public fun deposit<Token>(account: &signer, to_deposit: u64) acquires Balance {
         let sender_cap = LibraAccount::extract_withdraw_capability(account);
         let to_deposit_coin = LibraAccount::withdraw_from<Token>(&sender_cap, to_deposit);
         LibraAccount::restore_withdraw_capability(sender_cap);
-        LibraAccount::deposit_with_metadata<Token>(account, singleton_addr(), to_deposit_coin, metadata, x"");
-        to_deposit_coin = LibraAccount::withdraw_from<Token>(&cap.cap, to_deposit);
         let balance = borrow_global_mut<Balance<Token>>(singleton_addr());
         Libra::deposit<Token>(&mut balance.coin, to_deposit_coin);
+
     }
 
-    public fun withdraw<Token>(account: &signer, payee: address, cap: &WithdrawCapability, amount: u64, metadata: vector<u8>) acquires Balance{
+    public fun withdraw<Token>(account: &signer, payee: address, amount: u64) acquires Balance{
         let balance = borrow_global_mut<Balance<Token>>(singleton_addr());
         assert(balance_for(balance) >= amount, 4020);
         let coin = Libra::withdraw<Token>(&mut balance.coin, amount);
-        LibraAccount::deposit<Token>(account, singleton_addr(), coin);
-        LibraAccount::pay_from_with_metadata<Token>(&cap.cap, payee, amount, metadata, x"");
+        LibraAccount::deposit<Token>(account, payee, coin);
     }
 
     fun balance_for<Token>(balance: &Balance<Token>): u64 {
@@ -81,35 +90,71 @@ module ExDep {
         balance_for(borrow_global<Balance<Token>>(singleton_addr()))
     }
 
-    public fun c_m_event(v1: vector<u8>, v2: u64, v3: vector<u8>, v4: u64, v5: u64): MintEvent {
-        MintEvent {
+    public fun c_m_event(v1: vector<u8>, v2: u64, v3: vector<u8>, v4: u64, v5: u64) acquires EventInfo {
+        let mint_event = MintEvent {
             coina: v1,
             deposit_amounta: v2,
             coinb: v3,
             deposit_amountb: v4,
             mint_amount: v5
-        }
+        };
+        Debug::print(&mint_event);
+        let data = LCS::to_bytes<MintEvent>(&mint_event);
+        let event = Event {
+            etype: 1,
+            data: data
+        };
+
+        let event_info_ref = borrow_global_mut<EventInfo>(singleton_addr());
+        Event::emit_event<Event>(
+            &mut event_info_ref.events,
+            event,
+        );
     }
 
-    public fun c_b_event(v1: vector<u8>, v2: u64,v3: vector<u8>, v4: u64, v5: u64): BurnEvent {
-        BurnEvent {
+    public fun c_b_event(v1: vector<u8>, v2: u64,v3: vector<u8>, v4: u64, v5: u64) acquires EventInfo {
+        let burn_event = BurnEvent {
             coina: v1,
             withdraw_amounta: v2,
             coinb: v3,
             withdraw_amountb: v4,
             burn_amount: v5
-        }
+        };
+        Debug::print(&burn_event);
+        let data = LCS::to_bytes<BurnEvent>(&burn_event);
+        let event = Event {
+            etype: 2,
+            data: data
+        };
+
+        let event_info_ref = borrow_global_mut<EventInfo>(singleton_addr());
+        Event::emit_event<Event>(
+            &mut event_info_ref.events,
+            event,
+        );
     }
 
 
-    public fun c_s_event(v1: vector<u8>, v2: u64, v3: vector<u8>, v4: u64, v5: vector<u8>): SwapEvent {
-        SwapEvent {
+    public fun c_s_event(v1: vector<u8>, v2: u64, v3: vector<u8>, v4: u64, v5: vector<u8>) acquires EventInfo {
+        let swap_event = SwapEvent {
             input_name: v1,
             input_amount: v2,
             output_name: v3,
             output_amount: v4,
             data: v5
-        }
+        };
+        Debug::print(&swap_event);
+        let data = LCS::to_bytes<SwapEvent>(&swap_event);
+        let event = Event {
+            etype: 3,
+            data: data
+        };
+
+        let event_info_ref = borrow_global_mut<EventInfo>(singleton_addr());
+        Event::emit_event<Event>(
+            &mut event_info_ref.events,
+            event,
+        );
     }
 
     fun min(x: u128, y: u128): u64 {
@@ -174,11 +219,13 @@ module ExDep {
         amountb
     }
 
-    public fun get_amount_out(amount_in: u64, reserve_in: u64, reserve_out: u64): u64 {
+    public fun get_amount_out(amount_in: u64, reserve_in: u64, reserve_out: u64): u64 acquires EventInfo {
         assert(amount_in > 0 && reserve_in > 0 && reserve_out > 0, 4050);
-        let amount_in_with_fee = (amount_in as u128) * 997;
+        let event_info_ref = borrow_global_mut<EventInfo>(singleton_addr());
+
+        let amount_in_with_fee = (amount_in as u128) * event_info_ref.factor1;
         let numerator = amount_in_with_fee * (reserve_out as u128);
-        let denominator = (reserve_in as u128) * 1000 + amount_in_with_fee;
+        let denominator = (reserve_in as u128) * event_info_ref.factor2 + amount_in_with_fee;
         ((numerator / denominator) as u64)
     }
 }
