@@ -1,20 +1,20 @@
 
 import math
 
-# reserves = [{"ida": 4, "amoaunta": 10*10**18, "idb": 6, "amoauntb": 20*10**18}, \
-#             {"ida": 1, "amoaunta": 10*10**18, "idb": 3, "amoauntb": 20*10**18}, \
-#             {"ida": 3, "amoaunta": 10*10**18, "idb": 6, "amoauntb": 40*10**18},\
-#             {"ida": 0, "amoaunta": 5*10**18, "idb": 4, "amoauntb": 10*10**18},\
-#             {"ida": 0, "amoaunta": 5*10**18, "idb": 1, "amoauntb": 10*10**18}]
+reserves = [{"ida": 4, "amoaunta": 10*10**18, "idb": 6, "amoauntb": 20*10**18}, \
+            {"ida": 1, "amoaunta": 10*10**18, "idb": 3, "amoauntb": 20*10**18}, \
+            {"ida": 3, "amoaunta": 10*10**18, "idb": 6, "amoauntb": 40*10**18},\
+            {"ida": 0, "amoaunta": 5*10**18, "idb": 4, "amoauntb": 10*10**18},\
+            {"ida": 0, "amoaunta": 5*10**18, "idb": 1, "amoauntb": 10*10**18}]
 
-reserves = [{"ida": 1, "amoaunta": 50000000000000+10000000000000, "idb": 2, "amoauntb": 100000000000000-16662499791656}]
+# reserves = [{"ida": 1, "amoaunta": 50000000000000+10000000000000, "idb": 2, "amoauntb": 100000000000000-16662499791656}]
 
 def getPairs():
-    pairs = [(r['ida'], r['idb']) for r in reserves]
+    pairs = [(r['coina']['index'], r['coinb']['index']) for r in reserves]
     return pairs
 
 def getCurrencys():
-    return ['Coin1', 'Coin2', 'VLSUSD', 'VLSEUR', 'VLSGBP', 'VLSJPY', 'VLSSGD']
+    return ['VLSUSD', 'VLSEUR', 'VLSGBP', 'VLSSGD']
 
 def getReserve(CoinA, CoinB):
     (id1, id2) = (CoinA, CoinB)
@@ -23,11 +23,11 @@ def getReserve(CoinA, CoinB):
         (id1, id2) =  (id2, id1)
         sw_flag = True
     for r in reserves:
-        if r['ida'] == id1 and r['idb'] ==id2:
+        if r['coina']['index'] == id1 and r['coinb']['index'] ==id2:
             if sw_flag:
-                return (r['amoauntb'], r['amoaunta'])
+                return (r['coinb']['value'], r['coina']['value'])
             else:
-                return (r['amoaunta'], r['amoauntb'])
+                return (r['coina']['value'], r['coinb']['value'])
     return (0, 0)
 
 def quote(amountA, reserveA, reserveB):
@@ -57,8 +57,6 @@ def removeLiquidity(liquidity, amounta_min, amountb_min, reservea, reserveb, tot
     assert amounta >= amounta_min and amountb >= amountb_min
     return (amounta, amountb)
 
-    
-
 def getOutputAmountWithoutFee(amountIn, reserveIn, reserveOut):
     assert amountIn > 0 and reserveIn > 0 and reserveOut
     amountOut = amountIn * reserveOut // ( reserveIn + amountIn);
@@ -78,9 +76,9 @@ def getOutputAmountsWithoutFee(amountIn, path):
 
 def getOutputAmount(amountIn, reserveIn, reserveOut):
     assert amountIn > 0 and reserveIn > 0 and reserveOut
-    amountInWithFee = amountIn * 9997;
+    amountInWithFee = amountIn * 997;
     numerator = amountInWithFee * reserveOut;
-    denominator = reserveIn * 10000 + amountInWithFee;
+    denominator = reserveIn * 1000 + amountInWithFee;
     amountOut = numerator // denominator;
     return amountOut
 
@@ -119,6 +117,7 @@ def bestTradeExactIn(pairs, idIn, idOut, amountIn, originalAmountIn, path = [], 
         path.append(idIn)
     if bestTrades is None:
         bestTrades = []
+    last_path = path[:]
     for i in range(0, len(pairs)):
         pair = pairs[i]
         (reserveIn, reserveOut) = getReserve(pair[0], pair[1])
@@ -134,10 +133,13 @@ def bestTradeExactIn(pairs, idIn, idOut, amountIn, originalAmountIn, path = [], 
         if idOut == pair[0] or idOut == pair[1]:
             path.append(idOut)
             bestTrades.append((path, amountOut))
+            path = last_path[:]
         elif len(pairs) > 1:
             pairsExcludingThisPair = pairs[:]
             del(pairsExcludingThisPair[i])
             newPath = path + [newIdIn]
+            if len(newPath) > 3:
+                continue
             bestTradeExactIn(pairsExcludingThisPair, newIdIn, idOut, amountOut, originalAmountIn, newPath, bestTrades)
         
     return sorted(bestTrades, key=lambda k: k[1], reverse=True)
@@ -150,6 +152,7 @@ def bestTradeExactOut(pairs, idIn, idOut, amountOut, originalAmountOut, path = [
         path.append(idOut)
     if bestTrades is None:
         bestTrades = []
+    last_path = path[:]
     for i in range(0, len(pairs)):
         pair = pairs[i]
         (reserveIn, reserveOut) = getReserve(pair[0], pair[1])
@@ -166,26 +169,51 @@ def bestTradeExactOut(pairs, idIn, idOut, amountOut, originalAmountOut, path = [
         if idIn == pair[0] or idIn == pair[1]:
             path.insert(0, idIn)
             bestTrades.append((path, amountIn))
+            path = last_path[:]
         elif len(pairs) > 1:
             pairsExcludingThisPair = pairs[:]
             del(pairsExcludingThisPair[i])
             newPath = [newIdOut] + path
+            if len(newPath) > 3:
+                continue
             bestTradeExactOut(pairsExcludingThisPair, idIn, newIdOut, amountIn, originalAmountOut, newPath, bestTrades)
         
     return sorted(bestTrades, key=lambda k: k[1], reverse=False)
 
 
 if __name__ == "__main__":
-    # print(addLiquidity(0, 1, 1*10**30, 2*10**30, 0, 0, 0, 0, 0))
-    # print(addLiquidity(0, 1, 1*10**29, 2*10**29, 0, 0, 1*10**30, 2*10**30, 1414213562373094995304885780480))
+    # print(addLiquidity(1*10**30, 2*10**30, 0, 0, 0, 0, 0))
+    # print(addLiquidity(1*10**29, 2*10**29, 0, 0, 1*10**30, 2*10**30, 1414213562373094995304885780480))
     pairs = getPairs()
-    trades = bestTradeExactOut(pairs, 2, 1, 10000000000000, 10000000000000)
+    # trades = bestTradeExactOut(pairs, 2, 1, 10000000000000, 10000000000000)
     # trades = bestTradeExactIn(pairs, 0, 6, 1*10**18, 1*10**18)
-    print(trades)
+    # print(trades)
     # print("xxxxx")
     # print(getOutputAmounts(1*10**18, trades[0][0]))
     # print(getOutputAmountsWithoutFee(1*10**18, trades[0][0]))
     # print(getOutputAmounts(1*10**18, trades[1][0]))
     # trades = bestTradeExactOut(pairs, 0, 6, 2843678215834080602, 2843678215834080602)
     # print(trades)
-    # print(addLiquidity(2, 200, 0, 0, 0, 0, 0))
+    # trades = bestTradeExactIn(pairs, 0, 6, 207383121832828851, 207383121832828851)
+    # print(trades)
+
+    # trades = bestTradeExactIn(pairs, 0, 1, 10000000, 10000000)
+    # print(trades)
+    # fo = open("foo.txt", "w")
+    # fo.write(str(trades))
+    # fo.close()
+    # # print(addLiquidity(2, 200, 0, 0, 0, 0, 0))
+
+    # print(getOutputAmounts(10000000, [0,2,3,1,0,2,3,1,0,2,3,1,0,2,3,1,0,2,3,1]))
+    amta = getOutputAmounts(600000, [0,1])
+    print(amta)
+    amtb = getOutputAmountsWithoutFee(600000, [0,1])
+    print(amtb)
+    print(amtb[1] - amta[1])
+    
+    amta = getOutputAmounts(60000000000000000, [0,1])
+    print(amta)
+    amtb = getOutputAmountsWithoutFee(60000000000000000, [0,1])
+    print(amtb)
+    print(amtb[1] - amta[1])
+
