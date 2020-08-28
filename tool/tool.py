@@ -1,16 +1,16 @@
 
 import math
 
-reserves = [{"ida": 4, "amoaunta": 10*10**18, "idb": 6, "amoauntb": 20*10**18}, \
-            {"ida": 1, "amoaunta": 10*10**18, "idb": 3, "amoauntb": 20*10**18}, \
-            {"ida": 3, "amoaunta": 10*10**18, "idb": 6, "amoauntb": 40*10**18},\
-            {"ida": 0, "amoaunta": 5*10**18, "idb": 4, "amoauntb": 10*10**18},\
-            {"ida": 0, "amoaunta": 5*10**18, "idb": 1, "amoauntb": 10*10**18}]
+# reserves = [{"ida": 4, "amoaunta": 10*10**18, "idb": 6, "amoauntb": 20*10**18}, \
+#             {"ida": 1, "amoaunta": 10*10**18, "idb": 3, "amoauntb": 20*10**18}, \
+#             {"ida": 3, "amoaunta": 10*10**18, "idb": 6, "amoauntb": 40*10**18},\
+#             {"ida": 0, "amoaunta": 5*10**18, "idb": 4, "amoauntb": 10*10**18},\
+#             {"ida": 0, "amoaunta": 5*10**18, "idb": 1, "amoauntb": 10*10**18}]
 
-# reserves = [{"ida": 1, "amoaunta": 50000000000000+10000000000000, "idb": 2, "amoauntb": 100000000000000-16662499791656}]
+reserves = [{"ida": 0, "amoaunta": 50000000000000 + 10000000000000, "idb": 1, "amoauntb": 100000000000000 - 16662499791656}]
 
 def getPairs():
-    pairs = [(r['coina']['index'], r['coinb']['index']) for r in reserves]
+    pairs = [(r['ida'], r['idb']) for r in reserves]
     return pairs
 
 def getCurrencys():
@@ -23,11 +23,11 @@ def getReserve(CoinA, CoinB):
         (id1, id2) =  (id2, id1)
         sw_flag = True
     for r in reserves:
-        if r['coina']['index'] == id1 and r['coinb']['index'] ==id2:
+        if r['ida'] == id1 and r['idb'] ==id2:
             if sw_flag:
-                return (r['coinb']['value'], r['coina']['value'])
+                return (r['amoauntb'], r['amoaunta'])
             else:
-                return (r['coina']['value'], r['coinb']['value'])
+                return (r['amoaunta'], r['amoauntb'])
     return (0, 0)
 
 def quote(amountA, reserveA, reserveB):
@@ -76,9 +76,9 @@ def getOutputAmountsWithoutFee(amountIn, path):
 
 def getOutputAmount(amountIn, reserveIn, reserveOut):
     assert amountIn > 0 and reserveIn > 0 and reserveOut
-    amountInWithFee = amountIn * 997;
+    amountInWithFee = amountIn * 9997;
     numerator = amountInWithFee * reserveOut;
-    denominator = reserveIn * 1000 + amountInWithFee;
+    denominator = reserveIn * 10000 + amountInWithFee;
     amountOut = numerator // denominator;
     return amountOut
 
@@ -205,15 +205,17 @@ if __name__ == "__main__":
     # # print(addLiquidity(2, 200, 0, 0, 0, 0, 0))
 
     # print(getOutputAmounts(10000000, [0,2,3,1,0,2,3,1,0,2,3,1,0,2,3,1,0,2,3,1]))
-    amta = getOutputAmounts(600000, [0,1])
+    amta = getOutputAmounts(10000000000000, [0,1])
     print(amta)
-    amtb = getOutputAmountsWithoutFee(600000, [0,1])
-    print(amtb)
-    print(amtb[1] - amta[1])
+    amta = getOutputAmounts(10000000000000, [1,0])
+    print(amta)
+    # amtb = getOutputAmountsWithoutFee(600000, [0,1])
+    # print(amtb)
+    # print(amtb[1] - amta[1])
     
-    amta = getOutputAmounts(60000000000000000, [0,1])
-    print(amta)
-    amtb = getOutputAmountsWithoutFee(60000000000000000, [0,1])
-    print(amtb)
-    print(amtb[1] - amta[1])
+    # amta = getOutputAmounts(60000000000000000, [0,1])
+    # print(amta)
+    # amtb = getOutputAmountsWithoutFee(60000000000000000, [0,1])
+    # print(amtb)
+    # print(amtb[1] - amta[1])
 
