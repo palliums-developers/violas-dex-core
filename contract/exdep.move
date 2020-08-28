@@ -1,4 +1,4 @@
-address 0x7257c2417e4d1038e1817c8f283ace2e {
+address 0x1 {
 module ExDep {
     use 0x1::LibraAccount;
     use 0x1::Signer;
@@ -41,7 +41,7 @@ module ExDep {
         data: vector<u8>,
     }
 
-    fun contract_addr(): address {
+    fun admin_addr(): address {
         0x7257c2417e4d1038e1817c8f283ace2e
     }
 
@@ -52,8 +52,8 @@ module ExDep {
     }
 
     public fun set_fee_factor(account: &signer, factor1: u128, factor2: u128) acquires EventInfo {
-        assert(Signer::address_of(account)  == contract_addr(), 4010);
-        let event_info_ref = borrow_global_mut<EventInfo>(contract_addr());
+        assert(Signer::address_of(account)  == admin_addr(), 4010);
+        let event_info_ref = borrow_global_mut<EventInfo>(admin_addr());
         event_info_ref.factor1 = factor1;
         event_info_ref.factor2 = factor2;
     }
@@ -62,7 +62,7 @@ module ExDep {
         let sender_cap = LibraAccount::extract_withdraw_capability(account);
         LibraAccount::pay_from<Token>(
             &sender_cap,
-            contract_addr(),
+            admin_addr(),
             amount,
             x"",
             x""
@@ -95,7 +95,7 @@ module ExDep {
             data: data
         };
 
-        let event_info_ref = borrow_global_mut<EventInfo>(contract_addr());
+        let event_info_ref = borrow_global_mut<EventInfo>(admin_addr());
         Event::emit_event<Event>(
             &mut event_info_ref.events,
             event,
@@ -117,7 +117,7 @@ module ExDep {
             data: data
         };
 
-        let event_info_ref = borrow_global_mut<EventInfo>(contract_addr());
+        let event_info_ref = borrow_global_mut<EventInfo>(admin_addr());
         Event::emit_event<Event>(
             &mut event_info_ref.events,
             event,
@@ -140,7 +140,7 @@ module ExDep {
             data: data
         };
 
-        let event_info_ref = borrow_global_mut<EventInfo>(contract_addr());
+        let event_info_ref = borrow_global_mut<EventInfo>(admin_addr());
         Event::emit_event<Event>(
             &mut event_info_ref.events,
             event,
@@ -211,7 +211,7 @@ module ExDep {
 
     public fun get_amount_out(amount_in: u64, reserve_in: u64, reserve_out: u64): u64 acquires EventInfo {
         assert(amount_in > 0 && reserve_in > 0 && reserve_out > 0, 4050);
-        let event_info_ref = borrow_global_mut<EventInfo>(contract_addr());
+        let event_info_ref = borrow_global_mut<EventInfo>(admin_addr());
 
         let amount_in_with_fee = (amount_in as u128) * event_info_ref.factor1;
         let numerator = amount_in_with_fee * (reserve_out as u128);

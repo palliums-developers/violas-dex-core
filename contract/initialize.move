@@ -1,5 +1,5 @@
 script {
-use 0x7257c2417e4d1038e1817c8f283ace2e::Exchange;
+use 0x1::Exchange;
 fun main(account: &signer) {
     Exchange::initialize(account);
 }
