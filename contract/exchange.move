@@ -1,12 +1,10 @@
-address 0x1 {
-
+address 0x7257c2417e4d1038e1817c8f283ace2e {
 module Exchange {
     use 0x1::Signer;
     use 0x1::LibraAccount;
     use 0x1::Libra;
     use 0x1::Vector;
-    use 0x1::CoreAddresses;
-    use 0x1::ExDep;
+    use 0x7257c2417e4d1038e1817c8f283ace2e::ExDep;
 
     resource struct Reserves {
         reserves: vector<Reserve>,
@@ -15,6 +13,11 @@ module Exchange {
     resource struct RegisteredCurrencies {
         currency_codes: vector<vector<u8>>,
     }
+
+    resource struct WithdrawCapability {
+        cap: LibraAccount::WithdrawCapability,
+    }
+
 
     resource struct Reserve{
         liquidity_total_supply: u64,
@@ -31,37 +34,48 @@ module Exchange {
         value: u64,
     }
 
-    fun singleton_addr(): address {
-        CoreAddresses::ASSOCIATION_ROOT_ADDRESS()
+    fun contract_addr(): address {
+        0x7257c2417e4d1038e1817c8f283ace2e
     }
 
     public fun initialize(sender: &signer) {
-        assert(Signer::address_of(sender) == singleton_addr(), 5000);
+        assert(Signer::address_of(sender) == contract_addr(), 5000);
         move_to(sender, Reserves {
             reserves: Vector::empty()
         });
         move_to(sender, RegisteredCurrencies {
             currency_codes: Vector::empty()
         });
+        move_to(sender, WithdrawCapability {
+            cap: LibraAccount::extract_withdraw_capability(sender)
+        });
         ExDep::initialize(sender);
     }
 
     // Add a balance of `Token` type to the sending account.
     public fun add_currency<Token>(account: &signer) acquires RegisteredCurrencies {
+        assert(Signer::address_of(account)  == contract_addr(), 5001);
         let currency_code = Libra::currency_code<Token>();
-        let registered_currencies = borrow_global_mut<RegisteredCurrencies>(singleton_addr());
+        let registered_currencies = borrow_global_mut<RegisteredCurrencies>(contract_addr());
+
+        if (Vector::contains(&registered_currencies.currency_codes, &currency_code)){
+            return
+        };
         Vector::push_back(&mut registered_currencies.currency_codes, currency_code);
-        ExDep::add_currency<Token>(account);
+        
+        if (!LibraAccount::accepts_currency<Token>(contract_addr())) {
+            LibraAccount::add_currency<Token>(account);
+        };
     }
 
     // Return whether accepts `Token` type coins
     fun accepts_currency<Token>(): bool acquires RegisteredCurrencies {
         let _ = get_coin_id<Token>();
-        LibraAccount::accepts_currency<Token>(singleton_addr())
+        LibraAccount::accepts_currency<Token>(contract_addr())
     }
 
     public fun get_currencys(): vector<vector<u8>> acquires RegisteredCurrencies {
-        let registered_currencies = borrow_global_mut<RegisteredCurrencies>(singleton_addr());
+        let registered_currencies = borrow_global_mut<RegisteredCurrencies>(contract_addr());
         *&registered_currencies.currency_codes
     }
 
@@ -90,10 +104,10 @@ module Exchange {
 
     public fun get_reserve<CoinA, CoinB>(): (u64, u64, u64) acquires Reserves, RegisteredCurrencies {
         let (ida, idb) = get_pair_indexs<CoinA, CoinB>();
-        let reserves = borrow_global_mut<Reserves>(singleton_addr());
+        let reserves = borrow_global_mut<Reserves>(contract_addr());
         let reserve = get_reserve_internal(ida, idb, reserves);
-        let va = ExDep::balance<CoinA>();
-        let vb = ExDep::balance<CoinB>();
+        let va = LibraAccount::balance<CoinA>(contract_addr());
+        let vb = LibraAccount::balance<CoinB>(contract_addr());
         assert(va == reserve.coina.value && vb == reserve.coinb.value, 5040);
         (reserve.liquidity_total_supply, va, vb)
     }
@@ -122,8 +136,9 @@ module Exchange {
         ExDep::deposit<Token>(account, to_deposit);
     }
 
-    fun withdraw<Token>(account: &signer, payee: address, amount: u64){
-        ExDep::withdraw<Token>(account, payee, amount);
+    fun withdraw<Token>(payee: address, amount: u64) acquires WithdrawCapability{
+        let cap = borrow_global<WithdrawCapability>(contract_addr());
+        ExDep::withdraw<Token>(&cap.cap, payee, amount);
     }
 
     fun get_token(id: u64, tokens: &mut Tokens): &mut Token{
@@ -163,7 +178,7 @@ module Exchange {
 
     public fun add_liquidity<CoinA, CoinB>(account: &signer, amounta_desired: u64, amountb_desired: u64, amounta_min: u64, amountb_min: u64) acquires Reserves, RegisteredCurrencies, Tokens {
         assert(accepts_currency<CoinA>() && accepts_currency<CoinB>(), 5060);
-        let reserves = borrow_global_mut<Reserves>(singleton_addr());
+        let reserves = borrow_global_mut<Reserves>(contract_addr());
 
         let (ida, idb) = get_pair_indexs<CoinA, CoinB>();
         let reserve = get_reserve_internal(ida, idb, reserves);
@@ -175,8 +190,8 @@ module Exchange {
         reserve.coinb.value = reserveb + amountb;
     }
 
-    public fun remove_liquidity<CoinA, CoinB>(account: &signer, liquidity: u64, amounta_min: u64, amountb_min: u64) acquires Reserves, RegisteredCurrencies, Tokens {
-        let reserves = borrow_global_mut<Reserves>(singleton_addr());
+    public fun remove_liquidity<CoinA, CoinB>(account: &signer, liquidity: u64, amounta_min: u64, amountb_min: u64) acquires Reserves, RegisteredCurrencies, Tokens, WithdrawCapability {
+        let reserves = borrow_global_mut<Reserves>(contract_addr());
 
         let (ida, idb) = get_pair_indexs<CoinA, CoinB>();
         let reserve = get_reserve_internal(ida, idb, reserves);
@@ -196,11 +211,11 @@ module Exchange {
         let coinb = Libra::currency_code<CoinB>();
 
         ExDep::c_b_event(coina, amounta, coinb, amountb, liquidity);
-        withdraw<CoinA>(account, Signer::address_of(account), amounta);
-        withdraw<CoinB>(account, Signer::address_of(account), amountb);
+        withdraw<CoinA>(Signer::address_of(account), amounta);
+        withdraw<CoinB>(Signer::address_of(account), amountb);
     }
 
-    public fun swap<CoinA, CoinB>(account: &signer, payee: address, amount_in: u64, amount_out_min: u64, path: vector<u8>, data: vector<u8>) acquires Reserves, RegisteredCurrencies {
+    public fun swap<CoinA, CoinB>(account: &signer, payee: address, amount_in: u64, amount_out_min: u64, path: vector<u8>, data: vector<u8>) acquires Reserves, RegisteredCurrencies, WithdrawCapability {
         let (ida, idb) = get_pair_indexs<CoinA, CoinB>();
         let len = Vector::length(&path);
         let (path0, pathn) = (*Vector::borrow(&path, 0), *Vector::borrow(&path, len - 1));
@@ -210,7 +225,7 @@ module Exchange {
         assert(len > 1 && ida != idb && ida == (path0 as u64) && idb == (pathn as u64), 5080);
         let amounts = Vector::empty<u64>();
         Vector::push_back(&mut amounts, amount_in);
-        let reserves = borrow_global_mut<Reserves>(singleton_addr());
+        let reserves = borrow_global_mut<Reserves>(contract_addr());
         let i = 0;
         let amount_out = 0;
         while(i < len - 1){
@@ -242,12 +257,12 @@ module Exchange {
         ExDep::c_s_event(coina, amount_in, coinb, amount_out, data);
         if(path0 < pathn){
             deposit<CoinA>(account, amount_in);
-            withdraw<CoinB>(account, payee, amount_out);
+            withdraw<CoinB>(payee, amount_out);
         }
         else
         {
             deposit<CoinB>(account, amount_in);
-            withdraw<CoinA>(account, payee, amount_out);
+            withdraw<CoinA>(payee, amount_out);
         };
     }
 }

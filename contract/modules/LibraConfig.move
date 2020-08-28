@@ -1,13 +1,11 @@
 address 0x1 {
 module LibraConfig {
     use 0x1::CoreAddresses;
+    use 0x1::Errors;
     use 0x1::Event;
     use 0x1::LibraTimestamp;
     use 0x1::Signer;
-    use 0x1::Offer;
-    use 0x1::Roles::{Self, Capability, AssociationRootRole};
-
-    resource struct CreateOnChainConfig {}
+    use 0x1::Roles;
 
     // A generic singleton resource that holds a value of a specific type.
     resource struct LibraConfig<Config: copyable> { payload: Config }
@@ -23,26 +21,26 @@ module LibraConfig {
     }
 
     // Accounts with this privilege can modify config of type TypeName under default_address
+    // Currently, the capability is only published on Libra root.
     resource struct ModifyConfigCapability<TypeName> {}
 
-    /// Will fail if the account is not association root
-    public fun grant_privileges(account: &signer) {
-        Roles::add_privilege_to_account_association_root_role(account, CreateOnChainConfig{});
-    }
-
-    /// > TODO(tzakian): This needs to be removed
-    public fun grant_privileges_for_config_TESTNET_HACK_REMOVE(account: &signer) {
-        Roles::add_privilege_to_account_parent_vasp_role(account, CreateOnChainConfig{});
-    }
+    /// The `Configuration` resource is in an invalid state
+    const ECONFIGURATION: u64 = 0;
+    /// A `LibraConfig` resource is in an invalid state
+    const ELIBRA_CONFIG: u64 = 1;
+    /// A `ModifyConfigCapability` is in a different state than was expected
+    const EMODIFY_CAPABILITY: u64 = 2;
+    /// An invalid block time was encountered.
+    const EINVALID_BLOCK_TIME: u64 = 4;
 
     // This can only be invoked by the config address, and only a single time.
     // Currently, it is invoked in the genesis transaction
     public fun initialize(
         config_account: &signer,
-        _: &Capability<CreateOnChainConfig>,
     ) {
-        // Operational constraint
-        assert(Signer::address_of(config_account) == CoreAddresses::DEFAULT_CONFIG_ADDRESS(), 1);
+        LibraTimestamp::assert_genesis();
+        CoreAddresses::assert_libra_root(config_account);
+        assert(!exists<Configuration>(CoreAddresses::LIBRA_ROOT_ADDRESS()), Errors::already_published(ECONFIGURATION));
         move_to<Configuration>(
             config_account,
             Configuration {
@@ -54,127 +52,127 @@ module LibraConfig {
     }
 
     // Get a copy of `Config` value stored under `addr`.
-    public fun get<Config: copyable>(): Config acquires LibraConfig {
-        let addr = CoreAddresses::DEFAULT_CONFIG_ADDRESS();
-        assert(exists<LibraConfig<Config>>(addr), 24);
+    public fun get<Config: copyable>(): Config
+    acquires LibraConfig {
+        let addr = CoreAddresses::LIBRA_ROOT_ADDRESS();
+        assert(exists<LibraConfig<Config>>(addr), Errors::not_published(ELIBRA_CONFIG));
         *&borrow_global<LibraConfig<Config>>(addr).payload
+    }
+    spec fun get {
+        pragma opaque;
+        include AbortsIfNotPublished<Config>;
+        ensures result == spec_get<Config>();
+    }
+    spec schema AbortsIfNotPublished<Config> {
+        aborts_if !exists<LibraConfig<Config>>(CoreAddresses::LIBRA_ROOT_ADDRESS()) with Errors::NOT_PUBLISHED;
     }
 
     // Set a config item to a new value with the default capability stored under config address and trigger a
     // reconfiguration.
-    public fun set<Config: copyable>(account: &signer, payload: Config) acquires LibraConfig, Configuration {
-        let addr = CoreAddresses::DEFAULT_CONFIG_ADDRESS();
-        assert(exists<LibraConfig<Config>>(addr), 24);
+    public fun set<Config: copyable>(account: &signer, payload: Config)
+    acquires LibraConfig, Configuration {
         let signer_address = Signer::address_of(account);
-        assert(exists<ModifyConfigCapability<Config>>(signer_address), 24);
+        assert(exists<ModifyConfigCapability<Config>>(signer_address), Errors::requires_privilege(EMODIFY_CAPABILITY));
 
+        let addr = CoreAddresses::LIBRA_ROOT_ADDRESS();
+        assert(exists<LibraConfig<Config>>(addr), Errors::not_published(ELIBRA_CONFIG));
         let config = borrow_global_mut<LibraConfig<Config>>(addr);
         config.payload = payload;
 
         reconfigure_();
+    }
+    spec fun set {
+        include AbortsIfNotModifiable<Config>;
+    }
+    spec schema AbortsIfNotModifiable<Config> {
+        account: signer;
+        include AbortsIfNotPublished<Config>;
+        aborts_if !exists<ModifyConfigCapability<Config>>(Signer::spec_address_of(account))
+            with Errors::REQUIRES_PRIVILEGE;
     }
 
     // Set a config item to a new value and trigger a reconfiguration.
-    public fun set_with_capability<Config: copyable>(
+    public fun set_with_capability_and_reconfigure<Config: copyable>(
         _cap: &ModifyConfigCapability<Config>,
         payload: Config
     ) acquires LibraConfig, Configuration {
-        let addr = CoreAddresses::DEFAULT_CONFIG_ADDRESS();
-        assert(exists<LibraConfig<Config>>(addr), 24);
+        let addr = CoreAddresses::LIBRA_ROOT_ADDRESS();
+        assert(exists<LibraConfig<Config>>(addr), Errors::not_published(ELIBRA_CONFIG));
         let config = borrow_global_mut<LibraConfig<Config>>(addr);
         config.payload = payload;
         reconfigure_();
     }
 
-    // Publish a new config item. The caller will use the returned ModifyConfigCapability to specify the access control
+    // Publish a new config item.
+    // The caller will use the returned ModifyConfigCapability to specify the access control
     // policy for who can modify the config.
-    public fun publish_new_config_with_capability<Config: copyable>(
+    // Does not trigger a reconfiguration.
+    public fun publish_new_config_and_get_capability<Config: copyable>(
         config_account: &signer,
-        _: &Capability<CreateOnChainConfig>,
         payload: Config,
     ): ModifyConfigCapability<Config> {
-        assert(Signer::address_of(config_account) == CoreAddresses::DEFAULT_CONFIG_ADDRESS(), 1);
+        LibraTimestamp::assert_genesis();
+        Roles::assert_libra_root(config_account);
+        assert(
+            !exists<LibraConfig<Config>>(Signer::address_of(config_account)),
+            Errors::already_published(ELIBRA_CONFIG)
+        );
         move_to(config_account, LibraConfig { payload });
-        // We don't trigger reconfiguration here, instead we'll wait for all validators update the binary
-        // to register this config into ON_CHAIN_CONFIG_REGISTRY then send another transaction to change
-        // the value which triggers the reconfiguration.
-        return ModifyConfigCapability<Config> {}
-    }
-
-    // publish config and give capability only to TC account
-    public fun publish_new_treasury_compliance_config<Config: copyable>(
-        config_account: &signer,
-        tc_account: &signer,
-        _: &Capability<CreateOnChainConfig>,
-        payload: Config,
-    ) {
-        move_to(config_account, LibraConfig { payload });
-        move_to(tc_account, ModifyConfigCapability<Config> {});
+        ModifyConfigCapability<Config> {}
     }
 
     // Publish a new config item. Only the config address can modify such config.
+    // Does not trigger a reconfiguration. Will also publish the capability to
+    // modify this config under the given account.
     public fun publish_new_config<Config: copyable>(
         config_account: &signer,
-        _: &Capability<CreateOnChainConfig>,
         payload: Config
     ) {
-        assert(Signer::address_of(config_account) == CoreAddresses::DEFAULT_CONFIG_ADDRESS(), 1);
-        move_to(config_account, ModifyConfigCapability<Config> {});
-        move_to(config_account, LibraConfig{ payload });
-        // We don't trigger reconfiguration here, instead we'll wait for all validators update the binary
-        // to register this config into ON_CHAIN_CONFIG_REGISTRY then send another transaction to change
-        // the value which triggers the reconfiguration.
+        let capability = publish_new_config_and_get_capability<Config>(config_account, payload);
+        assert(
+            !exists<ModifyConfigCapability<Config>>(Signer::address_of(config_account)),
+            Errors::already_published(EMODIFY_CAPABILITY)
+        );
+        move_to(config_account, capability);
     }
 
     // Publish a new config item. Only the delegated address can modify such config after redeeming the capability.
-    public fun publish_new_config_with_delegate<Config: copyable>(
-        config_account: &signer,
-        _: &Capability<CreateOnChainConfig>,
-        payload: Config,
-        delegate: address,
-    ) {
-        assert(Signer::address_of(config_account) == CoreAddresses::DEFAULT_CONFIG_ADDRESS(), 1);
-        Offer::create(config_account, ModifyConfigCapability<Config>{}, delegate);
-        move_to(config_account, LibraConfig { payload });
-        // We don't trigger reconfiguration here, instead we'll wait for all validators update the
-        // binary to register this config into ON_CHAIN_CONFIG_REGISTRY then send another
-        // transaction to change the value which triggers the reconfiguration.
-    }
-
-    // Claim a delegated modify config capability granted by publish_new_config_with_delegate.
-    public fun claim_delegated_modify_config<Config>(account: &signer, offer_address: address) {
-        move_to(account, Offer::redeem<ModifyConfigCapability<Config>>(account, offer_address))
-    }
-
     public fun reconfigure(
-        _: &Capability<AssociationRootRole>,
+        lr_account: &signer,
     ) acquires Configuration {
-        // Only callable by association address or by the VM internally.
+        Roles::assert_libra_root(lr_account);
         reconfigure_();
     }
 
     fun reconfigure_() acquires Configuration {
        // Do not do anything if time is not set up yet, this is to avoid genesis emit too many epochs.
-       if (LibraTimestamp::is_genesis()) {
+       if (LibraTimestamp::is_not_initialized()) {
            return ()
        };
 
-       let config_ref = borrow_global_mut<Configuration>(CoreAddresses::DEFAULT_CONFIG_ADDRESS());
+       let config_ref = borrow_global_mut<Configuration>(CoreAddresses::LIBRA_ROOT_ADDRESS());
 
        // Ensure that there is at most one reconfiguration per transaction. This ensures that there is a 1-1
        // correspondence between system reconfigurations and emitted ReconfigurationEvents.
 
        let current_block_time = LibraTimestamp::now_microseconds();
-       assert(current_block_time > config_ref.last_reconfiguration_time, 23);
+       assert(current_block_time > config_ref.last_reconfiguration_time, Errors::invalid_state(EINVALID_BLOCK_TIME));
        config_ref.last_reconfiguration_time = current_block_time;
 
        emit_reconfiguration_event();
+    }
+    spec fun reconfigure_ {
+        /// The effect of this function is currently excluded from verification.
+        /// > TODO: still specify this function using the `[concrete]` property so it can be locally verified.
+        pragma opaque, verify = false;
+        aborts_if false;
     }
 
     // Emit a reconfiguration event. This function will be invoked by the genesis directly to generate the very first
     // reconfiguration event.
     fun emit_reconfiguration_event() acquires Configuration {
-        let config_ref = borrow_global_mut<Configuration>(CoreAddresses::DEFAULT_CONFIG_ADDRESS());
+        assert(exists<Configuration>(CoreAddresses::LIBRA_ROOT_ADDRESS()), Errors::not_published(ECONFIGURATION));
+        let config_ref = borrow_global_mut<Configuration>(CoreAddresses::LIBRA_ROOT_ADDRESS());
         config_ref.epoch = config_ref.epoch + 1;
 
         Event::emit_event<NewEpochEvent>(
@@ -189,34 +187,53 @@ module LibraConfig {
 
     spec module {
 
-        /// Specifications of LibraConfig are very incomplete.  There are just a few
-        /// definitions that are used by RegisteredCurrencies
-
+        /// TODO: Specifications of LibraConfig are very incomplete.
         pragma verify = true;
 
-        // spec_get is the spec version of get<Config>
+        /// Configurations are only stored at the libra root address.
+        invariant
+            forall config_address: address, config_type: type where exists<LibraConfig<config_type>>(config_address):
+                config_address == CoreAddresses::LIBRA_ROOT_ADDRESS();
+
+        /// After genesis, no new configurations are added.
+        invariant update [global]
+            LibraTimestamp::is_operating() ==>
+                (forall config_type: type
+                 where old(!exists<LibraConfig<config_type>>(CoreAddresses::LIBRA_ROOT_ADDRESS())):
+                     !exists<LibraConfig<config_type>>(CoreAddresses::LIBRA_ROOT_ADDRESS()));
+
+        define spec_has_config(): bool {
+            exists<Configuration>(CoreAddresses::LIBRA_ROOT_ADDRESS())
+        }
+
+        /// Spec version of `LibraConfig::get<Config>`.
         define spec_get<Config>(): Config {
-            global<LibraConfig<Config>>(0xF1A95).payload
+            global<LibraConfig<Config>>(CoreAddresses::LIBRA_ROOT_ADDRESS()).payload
         }
 
-        define spec_is_published<Config>(addr: address): bool {
-            exists<LibraConfig<Config>>(addr)
+        /// Spec version of `LibraConfig::is_published<Config>`.
+        define spec_is_published<Config>(): bool {
+            exists<LibraConfig<Config>>(CoreAddresses::LIBRA_ROOT_ADDRESS())
         }
+
     }
 
-    // check spec_is_published
     spec fun publish_new_config {
-        // aborts_if spec_is_published<Config>();
-        ensures old(!spec_is_published<Config>(Signer::get_address(config_account)));
-        ensures spec_is_published<Config>(Signer::get_address(config_account));
+        include PublishNewConfigAbortsIf<Config>;
+        include PublishNewConfigEnsures<Config>;
     }
-
-    spec fun publish_new_config_with_capability {
-        // aborts_if spec_is_published<Config>();
-        ensures old(!spec_is_published<Config>(Signer::get_address(config_account)));
-        ensures spec_is_published<Config>(Signer::get_address(config_account));
+    spec schema PublishNewConfigAbortsIf<Config> {
+        config_account: signer;
+        include LibraTimestamp::AbortsIfNotGenesis;
+        include Roles::AbortsIfNotLibraRoot{account: config_account};
+        aborts_if spec_is_published<Config>();
+        aborts_if exists<ModifyConfigCapability<Config>>(Signer::spec_address_of(config_account));
     }
-
+    spec schema PublishNewConfigEnsures<Config> {
+        config_account: signer;
+         ensures spec_is_published<Config>();
+         ensures exists<ModifyConfigCapability<Config>>(Signer::spec_address_of(config_account));
+    }
 
 }
 }

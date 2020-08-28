@@ -1,22 +1,15 @@
-address 0x1 {
+address 0x7257c2417e4d1038e1817c8f283ace2e {
 module ExDep {
-    use 0x1::Libra::{Self, Libra};
     use 0x1::LibraAccount;
     use 0x1::Signer;
     use 0x1::Debug;
     use 0x1::LCS;
-    use 0x1::CoreAddresses;
     use 0x1::Event::{Self, EventHandle};
 
     resource struct EventInfo {
         events: EventHandle<Event>,
         factor1: u128,
         factor2: u128,
-    }
-
-    // A resource that holds the coins stored in this account
-    resource struct Balance<Token> {
-        coin: Libra<Token>,
     }
 
     struct Event {
@@ -48,46 +41,43 @@ module ExDep {
         data: vector<u8>,
     }
 
-    fun singleton_addr(): address {
-        CoreAddresses::ASSOCIATION_ROOT_ADDRESS()
+    fun contract_addr(): address {
+        0x7257c2417e4d1038e1817c8f283ace2e
     }
 
     public fun initialize(account: &signer) {
-        assert(Signer::address_of(account)  == singleton_addr(), 4010);
         move_to(account, EventInfo{ events: Event::new_event_handle<Event>(account),
                         factor1: 9997,
                         factor2: 10000 })
     }
 
-    // Add a balance of `Token` type to the sending account.
-    public fun add_currency<Token>(account: &signer) {
-        assert(Signer::address_of(account)  == singleton_addr(), 4010);
-        move_to(account, Balance<Token>{ coin: Libra::zero<Token>() })
+    public fun set_fee_factor(account: &signer, factor1: u128, factor2: u128) acquires EventInfo {
+        assert(Signer::address_of(account)  == contract_addr(), 4010);
+        let event_info_ref = borrow_global_mut<EventInfo>(contract_addr());
+        event_info_ref.factor1 = factor1;
+        event_info_ref.factor2 = factor2;
     }
 
-    public fun deposit<Token>(account: &signer, to_deposit: u64) acquires Balance {
+    public fun deposit<Token>(account: &signer, amount: u64) {
         let sender_cap = LibraAccount::extract_withdraw_capability(account);
-        let to_deposit_coin = LibraAccount::withdraw_from<Token>(&sender_cap, to_deposit);
+        LibraAccount::pay_from<Token>(
+            &sender_cap,
+            contract_addr(),
+            amount,
+            x"",
+            x""
+        );
         LibraAccount::restore_withdraw_capability(sender_cap);
-        let balance = borrow_global_mut<Balance<Token>>(singleton_addr());
-        Libra::deposit<Token>(&mut balance.coin, to_deposit_coin);
-
     }
 
-    public fun withdraw<Token>(account: &signer, payee: address, amount: u64) acquires Balance{
-        let balance = borrow_global_mut<Balance<Token>>(singleton_addr());
-        assert(balance_for(balance) >= amount, 4020);
-        let coin = Libra::withdraw<Token>(&mut balance.coin, amount);
-        LibraAccount::deposit<Token>(account, payee, coin);
-    }
-
-    fun balance_for<Token>(balance: &Balance<Token>): u64 {
-        Libra::value<Token>(&balance.coin)
-    }
-
-    // Return the current balance of the account at `addr`.
-    public fun balance<Token>(): u64 acquires Balance {
-        balance_for(borrow_global<Balance<Token>>(singleton_addr()))
+    public fun withdraw<Token>(cap: &LibraAccount::WithdrawCapability, payee: address, amount: u64) {
+        LibraAccount::pay_from<Token>(
+            cap,
+            payee,
+            amount,
+            x"",
+            x""
+        )
     }
 
     public fun c_m_event(v1: vector<u8>, v2: u64, v3: vector<u8>, v4: u64, v5: u64) acquires EventInfo {
@@ -105,7 +95,7 @@ module ExDep {
             data: data
         };
 
-        let event_info_ref = borrow_global_mut<EventInfo>(singleton_addr());
+        let event_info_ref = borrow_global_mut<EventInfo>(contract_addr());
         Event::emit_event<Event>(
             &mut event_info_ref.events,
             event,
@@ -127,7 +117,7 @@ module ExDep {
             data: data
         };
 
-        let event_info_ref = borrow_global_mut<EventInfo>(singleton_addr());
+        let event_info_ref = borrow_global_mut<EventInfo>(contract_addr());
         Event::emit_event<Event>(
             &mut event_info_ref.events,
             event,
@@ -150,7 +140,7 @@ module ExDep {
             data: data
         };
 
-        let event_info_ref = borrow_global_mut<EventInfo>(singleton_addr());
+        let event_info_ref = borrow_global_mut<EventInfo>(contract_addr());
         Event::emit_event<Event>(
             &mut event_info_ref.events,
             event,
@@ -221,7 +211,7 @@ module ExDep {
 
     public fun get_amount_out(amount_in: u64, reserve_in: u64, reserve_out: u64): u64 acquires EventInfo {
         assert(amount_in > 0 && reserve_in > 0 && reserve_out > 0, 4050);
-        let event_info_ref = borrow_global_mut<EventInfo>(singleton_addr());
+        let event_info_ref = borrow_global_mut<EventInfo>(contract_addr());
 
         let amount_in_with_fee = (amount_in as u128) * event_info_ref.factor1;
         let numerator = amount_in_with_fee * (reserve_out as u128);
