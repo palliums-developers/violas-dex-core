@@ -448,10 +448,13 @@ module Exchange {
 
     public fun swap<CoinA, CoinB>(account: &signer, payee: address, amount_in: u64, amount_out_min: u64, path: vector<u8>, data: vector<u8>) acquires Reserves, RegisteredCurrencies, WithdrawCapability {
         let (ida, idb) = get_pair_indexs<CoinA, CoinB>();
+        let coina = Libra::currency_code<CoinA>();
+        let coinb = Libra::currency_code<CoinB>();
         let len = Vector::length(&path);
         let (path0, pathn) = (*Vector::borrow(&path, 0), *Vector::borrow(&path, len - 1));
         if(path0 > pathn){
             (ida, idb) = (idb, ida);
+            (coina, coinb) = (coinb, coina);
         };
         assert(len > 1 && ida != idb && ida == (path0 as u64) && idb == (pathn as u64), 5080);
         let amounts = Vector::empty<u64>();

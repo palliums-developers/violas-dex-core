@@ -217,10 +217,13 @@ module Exchange {
 
     public fun swap<CoinA, CoinB>(account: &signer, payee: address, amount_in: u64, amount_out_min: u64, path: vector<u8>, data: vector<u8>) acquires Reserves, RegisteredCurrencies, WithdrawCapability {
         let (ida, idb) = get_pair_indexs<CoinA, CoinB>();
+        let coina = Libra::currency_code<CoinA>();
+        let coinb = Libra::currency_code<CoinB>();
         let len = Vector::length(&path);
         let (path0, pathn) = (*Vector::borrow(&path, 0), *Vector::borrow(&path, len - 1));
         if(path0 > pathn){
             (ida, idb) = (idb, ida);
+            (coina, coinb) = (coinb, coina);
         };
         assert(len > 1 && ida != idb && ida == (path0 as u64) && idb == (pathn as u64), 5080);
         let amounts = Vector::empty<u64>();
@@ -228,7 +231,7 @@ module Exchange {
         let reserves = borrow_global_mut<Reserves>(admin_addr());
         let i = 0;
         let amount_out = 0;
-        while(i < len - 1){
+        while(i < len - 1) {
             let amt_in = *Vector::borrow(&amounts, i);
             let id_in = (*Vector::borrow(&path, i) as u64);
             let id_out = (*Vector::borrow(&path, i + 1) as u64);
@@ -252,8 +255,6 @@ module Exchange {
             i = i + 1;
         };
         assert(amount_out >= amount_out_min, 5081);
-        let coina = Libra::currency_code<CoinA>();
-        let coinb = Libra::currency_code<CoinB>();
         ExDep::c_s_event(coina, amount_in, coinb, amount_out, data);
         if(path0 < pathn){
             deposit<CoinA>(account, amount_in);
