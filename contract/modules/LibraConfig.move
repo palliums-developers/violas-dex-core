@@ -33,22 +33,39 @@ module LibraConfig {
     /// An invalid block time was encountered.
     const EINVALID_BLOCK_TIME: u64 = 4;
 
+    const MAX_U64: u64 = 18446744073709551615;
+
     // This can only be invoked by the config address, and only a single time.
     // Currently, it is invoked in the genesis transaction
     public fun initialize(
-        config_account: &signer,
+        lr_account: &signer,
     ) {
         LibraTimestamp::assert_genesis();
-        CoreAddresses::assert_libra_root(config_account);
+        CoreAddresses::assert_libra_root(lr_account);
         assert(!exists<Configuration>(CoreAddresses::LIBRA_ROOT_ADDRESS()), Errors::already_published(ECONFIGURATION));
         move_to<Configuration>(
-            config_account,
+            lr_account,
             Configuration {
                 epoch: 0,
                 last_reconfiguration_time: 0,
-                events: Event::new_event_handle<NewEpochEvent>(config_account),
+                events: Event::new_event_handle<NewEpochEvent>(lr_account),
             }
         );
+    }
+    spec fun initialize {
+        pragma opaque;
+        include InitializeAbortsIf;
+        modifies global<Configuration>(CoreAddresses::LIBRA_ROOT_ADDRESS());
+        ensures spec_has_config();
+        let new_config = global<Configuration>(CoreAddresses::LIBRA_ROOT_ADDRESS());
+        ensures new_config.epoch == 0;
+        ensures new_config.last_reconfiguration_time == 0;
+    }
+    spec schema InitializeAbortsIf {
+        lr_account: signer;
+        include LibraTimestamp::AbortsIfNotGenesis;
+        include CoreAddresses::AbortsIfNotLibraRoot{account: lr_account};
+        aborts_if spec_has_config() with Errors::ALREADY_PUBLISHED;
     }
 
     // Get a copy of `Config` value stored under `addr`.
@@ -61,7 +78,7 @@ module LibraConfig {
     spec fun get {
         pragma opaque;
         include AbortsIfNotPublished<Config>;
-        ensures result == spec_get<Config>();
+        ensures result == get<Config>();
     }
     spec schema AbortsIfNotPublished<Config> {
         aborts_if !exists<LibraConfig<Config>>(CoreAddresses::LIBRA_ROOT_ADDRESS()) with Errors::NOT_PUBLISHED;
@@ -72,7 +89,7 @@ module LibraConfig {
     public fun set<Config: copyable>(account: &signer, payload: Config)
     acquires LibraConfig, Configuration {
         let signer_address = Signer::address_of(account);
-        assert(exists<ModifyConfigCapability<Config>>(signer_address), Errors::requires_privilege(EMODIFY_CAPABILITY));
+        assert(exists<ModifyConfigCapability<Config>>(signer_address), Errors::requires_capability(EMODIFY_CAPABILITY));
 
         let addr = CoreAddresses::LIBRA_ROOT_ADDRESS();
         assert(exists<LibraConfig<Config>>(addr), Errors::not_published(ELIBRA_CONFIG));
@@ -82,13 +99,25 @@ module LibraConfig {
         reconfigure_();
     }
     spec fun set {
+        pragma opaque;
+        include SetAbortsIf<Config>;
+        include SetEnsures<Config>;
+    }
+    spec schema SetAbortsIf<Config> {
+        account: signer;
         include AbortsIfNotModifiable<Config>;
+        include AbortsIfNotPublished<Config>;
+        include ReconfigureAbortsIf;
     }
     spec schema AbortsIfNotModifiable<Config> {
         account: signer;
-        include AbortsIfNotPublished<Config>;
         aborts_if !exists<ModifyConfigCapability<Config>>(Signer::spec_address_of(account))
-            with Errors::REQUIRES_PRIVILEGE;
+            with Errors::REQUIRES_CAPABILITY;
+    }
+    spec schema SetEnsures<Config> {
+        payload: Config;
+        ensures spec_is_published<Config>();
+        ensures get<Config>() == payload;
     }
 
     // Set a config item to a new value and trigger a reconfiguration.
@@ -102,38 +131,76 @@ module LibraConfig {
         config.payload = payload;
         reconfigure_();
     }
+    spec fun set_with_capability_and_reconfigure {
+        pragma opaque;
+        include AbortsIfNotPublished<Config>;
+        include ReconfigureAbortsIf;
+        modifies global<LibraConfig<Config>>(CoreAddresses::LIBRA_ROOT_ADDRESS());
+        include SetEnsures<Config>;
+    }
 
     // Publish a new config item.
     // The caller will use the returned ModifyConfigCapability to specify the access control
     // policy for who can modify the config.
     // Does not trigger a reconfiguration.
     public fun publish_new_config_and_get_capability<Config: copyable>(
-        config_account: &signer,
+        lr_account: &signer,
         payload: Config,
     ): ModifyConfigCapability<Config> {
         LibraTimestamp::assert_genesis();
-        Roles::assert_libra_root(config_account);
+        Roles::assert_libra_root(lr_account);
         assert(
-            !exists<LibraConfig<Config>>(Signer::address_of(config_account)),
+            !exists<LibraConfig<Config>>(Signer::address_of(lr_account)),
             Errors::already_published(ELIBRA_CONFIG)
         );
-        move_to(config_account, LibraConfig { payload });
+        move_to(lr_account, LibraConfig { payload });
         ModifyConfigCapability<Config> {}
+    }
+    spec fun publish_new_config_and_get_capability {
+        pragma opaque;
+        modifies global<LibraConfig<Config>>(CoreAddresses::LIBRA_ROOT_ADDRESS());
+        include LibraTimestamp::AbortsIfNotGenesis;
+        include Roles::AbortsIfNotLibraRoot{account: lr_account};
+        include AbortsIfPublished<Config>;
+        include SetEnsures<Config>;
+    }
+    spec schema AbortsIfPublished<Config> {
+        aborts_if exists<LibraConfig<Config>>(CoreAddresses::LIBRA_ROOT_ADDRESS()) with Errors::ALREADY_PUBLISHED;
     }
 
     // Publish a new config item. Only the config address can modify such config.
     // Does not trigger a reconfiguration. Will also publish the capability to
     // modify this config under the given account.
     public fun publish_new_config<Config: copyable>(
-        config_account: &signer,
+        lr_account: &signer,
         payload: Config
     ) {
-        let capability = publish_new_config_and_get_capability<Config>(config_account, payload);
+        let capability = publish_new_config_and_get_capability<Config>(lr_account, payload);
         assert(
-            !exists<ModifyConfigCapability<Config>>(Signer::address_of(config_account)),
+            !exists<ModifyConfigCapability<Config>>(Signer::address_of(lr_account)),
             Errors::already_published(EMODIFY_CAPABILITY)
         );
-        move_to(config_account, capability);
+        move_to(lr_account, capability);
+    }
+    spec fun publish_new_config {
+        pragma opaque;
+        modifies global<LibraConfig<Config>>(CoreAddresses::LIBRA_ROOT_ADDRESS());
+        modifies global<ModifyConfigCapability<Config>>(CoreAddresses::LIBRA_ROOT_ADDRESS());
+        include PublishNewConfigAbortsIf<Config>;
+        include PublishNewConfigEnsures<Config>;
+    }
+    spec schema PublishNewConfigAbortsIf<Config> {
+        lr_account: signer;
+        include LibraTimestamp::AbortsIfNotGenesis;
+        include Roles::AbortsIfNotLibraRoot{account: lr_account};
+        aborts_if spec_is_published<Config>();
+        aborts_if exists<ModifyConfigCapability<Config>>(Signer::spec_address_of(lr_account));
+    }
+    spec schema PublishNewConfigEnsures<Config> {
+        lr_account: signer;
+        payload: Config;
+        include SetEnsures<Config>;
+        ensures exists<ModifyConfigCapability<Config>>(Signer::spec_address_of(lr_account));
     }
 
     // Publish a new config item. Only the delegated address can modify such config after redeeming the capability.
@@ -143,37 +210,52 @@ module LibraConfig {
         Roles::assert_libra_root(lr_account);
         reconfigure_();
     }
+    spec fun reconfigure {
+        pragma opaque;
+        include Roles::AbortsIfNotLibraRoot{account: lr_account};
+        include ReconfigureAbortsIf;
+    }
 
     fun reconfigure_() acquires Configuration {
-       // Do not do anything if time is not set up yet, this is to avoid genesis emit too many epochs.
-       if (LibraTimestamp::is_not_initialized()) {
-           return ()
-       };
+        // Do not do anything if genesis has not finished.
+        if (LibraTimestamp::is_genesis() || LibraTimestamp::now_microseconds() == 0) {
+            return ()
+        };
 
-       let config_ref = borrow_global_mut<Configuration>(CoreAddresses::LIBRA_ROOT_ADDRESS());
+        let config_ref = borrow_global_mut<Configuration>(CoreAddresses::LIBRA_ROOT_ADDRESS());
+        let current_time = LibraTimestamp::now_microseconds();
+        assert(current_time > config_ref.last_reconfiguration_time, Errors::invalid_state(EINVALID_BLOCK_TIME));
+        config_ref.last_reconfiguration_time = current_time;
+        config_ref.epoch = config_ref.epoch + 1;
 
-       // Ensure that there is at most one reconfiguration per transaction. This ensures that there is a 1-1
-       // correspondence between system reconfigurations and emitted ReconfigurationEvents.
-
-       let current_block_time = LibraTimestamp::now_microseconds();
-       assert(current_block_time > config_ref.last_reconfiguration_time, Errors::invalid_state(EINVALID_BLOCK_TIME));
-       config_ref.last_reconfiguration_time = current_block_time;
-
-       emit_reconfiguration_event();
+        Event::emit_event<NewEpochEvent>(
+            &mut config_ref.events,
+            NewEpochEvent {
+                epoch: config_ref.epoch,
+            },
+        );
     }
     spec fun reconfigure_ {
-        /// The effect of this function is currently excluded from verification.
-        /// > TODO: still specify this function using the `[concrete]` property so it can be locally verified.
-        pragma opaque, verify = false;
-        aborts_if false;
+        pragma opaque;
+        include ReconfigureAbortsIf;
+        aborts_if [assume] global<Configuration>(CoreAddresses::LIBRA_ROOT_ADDRESS()).epoch == MAX_U64;
+        modifies global<Configuration>(CoreAddresses::LIBRA_ROOT_ADDRESS());
+        let epoch = global<Configuration>(CoreAddresses::LIBRA_ROOT_ADDRESS()).epoch;
+        ensures if (LibraTimestamp::is_genesis() || LibraTimestamp::spec_now_microseconds() == 0 || old(epoch) == MAX_U64) { epoch == old(epoch) } else { epoch == old(epoch) + 1 };
+    }
+    spec schema ReconfigureAbortsIf {
+        let config = global<Configuration>(CoreAddresses::LIBRA_ROOT_ADDRESS());
+        let current_time = LibraTimestamp::spec_now_microseconds();
+        aborts_if LibraTimestamp::is_operating() && LibraTimestamp::spec_now_microseconds() > 0 && config.epoch < MAX_U64 && current_time == config.last_reconfiguration_time with Errors::INVALID_STATE;
     }
 
-    // Emit a reconfiguration event. This function will be invoked by the genesis directly to generate the very first
+    // Emit a reconfiguration event. This function will be invoked by genesis directly to generate the very first
     // reconfiguration event.
-    fun emit_reconfiguration_event() acquires Configuration {
+    fun emit_genesis_reconfiguration_event() acquires Configuration {
         assert(exists<Configuration>(CoreAddresses::LIBRA_ROOT_ADDRESS()), Errors::not_published(ECONFIGURATION));
         let config_ref = borrow_global_mut<Configuration>(CoreAddresses::LIBRA_ROOT_ADDRESS());
-        config_ref.epoch = config_ref.epoch + 1;
+        assert(config_ref.epoch == 0 && config_ref.last_reconfiguration_time == 0, Errors::invalid_state(ECONFIGURATION));
+        config_ref.epoch = 1;
 
         Event::emit_event<NewEpochEvent>(
             &mut config_ref.events,
@@ -186,9 +268,22 @@ module LibraConfig {
     // **************** Specifications ****************
 
     spec module {
-
-        /// TODO: Specifications of LibraConfig are very incomplete.
         pragma verify = true;
+
+        define spec_has_config(): bool {
+            exists<Configuration>(CoreAddresses::LIBRA_ROOT_ADDRESS())
+        }
+
+        invariant [global] LibraTimestamp::is_operating() ==> spec_has_config();
+
+        invariant [global] global<Configuration>(CoreAddresses::LIBRA_ROOT_ADDRESS()).last_reconfiguration_time <= LibraTimestamp::spec_now_microseconds();
+
+        define spec_is_published<Config>(): bool {
+            exists<LibraConfig<Config>>(CoreAddresses::LIBRA_ROOT_ADDRESS())
+        }
+
+        invariant [global] (LibraTimestamp::is_genesis() || LibraTimestamp::spec_now_microseconds() == 0) ==>
+                                global<Configuration>(CoreAddresses::LIBRA_ROOT_ADDRESS()).epoch < MAX_U64;
 
         /// Configurations are only stored at the libra root address.
         invariant
@@ -198,41 +293,10 @@ module LibraConfig {
         /// After genesis, no new configurations are added.
         invariant update [global]
             LibraTimestamp::is_operating() ==>
-                (forall config_type: type
-                 where old(!exists<LibraConfig<config_type>>(CoreAddresses::LIBRA_ROOT_ADDRESS())):
-                     !exists<LibraConfig<config_type>>(CoreAddresses::LIBRA_ROOT_ADDRESS()));
+                (forall config_type: type where spec_is_published<config_type>(): old(spec_is_published<config_type>()));
 
-        define spec_has_config(): bool {
-            exists<Configuration>(CoreAddresses::LIBRA_ROOT_ADDRESS())
-        }
-
-        /// Spec version of `LibraConfig::get<Config>`.
-        define spec_get<Config>(): Config {
-            global<LibraConfig<Config>>(CoreAddresses::LIBRA_ROOT_ADDRESS()).payload
-        }
-
-        /// Spec version of `LibraConfig::is_published<Config>`.
-        define spec_is_published<Config>(): bool {
-            exists<LibraConfig<Config>>(CoreAddresses::LIBRA_ROOT_ADDRESS())
-        }
-
-    }
-
-    spec fun publish_new_config {
-        include PublishNewConfigAbortsIf<Config>;
-        include PublishNewConfigEnsures<Config>;
-    }
-    spec schema PublishNewConfigAbortsIf<Config> {
-        config_account: signer;
-        include LibraTimestamp::AbortsIfNotGenesis;
-        include Roles::AbortsIfNotLibraRoot{account: config_account};
-        aborts_if spec_is_published<Config>();
-        aborts_if exists<ModifyConfigCapability<Config>>(Signer::spec_address_of(config_account));
-    }
-    spec schema PublishNewConfigEnsures<Config> {
-        config_account: signer;
-         ensures spec_is_published<Config>();
-         ensures exists<ModifyConfigCapability<Config>>(Signer::spec_address_of(config_account));
+        invariant update [global]
+            (forall config_type: type where old(spec_is_published<config_type>()): spec_is_published<config_type>());
     }
 
 }

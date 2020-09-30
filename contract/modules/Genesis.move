@@ -5,7 +5,6 @@
 address 0x1 {
 module Genesis {
     use 0x1::AccountFreezing;
-    use 0x1::VASP;
     use 0x1::ChainId;
     use 0x1::Coin1;
     use 0x1::Coin2;
@@ -19,7 +18,6 @@ module Genesis {
     use 0x1::LibraSystem;
     use 0x1::LibraTimestamp;
     use 0x1::LibraTransactionPublishingOption;
-    use 0x1::LibraTransactionTimeout;
     use 0x1::LibraVersion;
     use 0x1::LibraWriteSetManager;
     use 0x1::Signer;
@@ -30,8 +28,9 @@ module Genesis {
     fun initialize(
         lr_account: &signer,
         tc_account: &signer,
+        lr_auth_key: vector<u8>,
         tc_addr: address,
-        genesis_auth_key: vector<u8>,
+        tc_auth_key: vector<u8>,
         initial_script_allow_list: vector<vector<u8>>,
         is_open_module: bool,
         instruction_schedule: vector<u8>,
@@ -49,9 +48,8 @@ module Genesis {
         Event::publish_generator(lr_account);
         LibraConfig::initialize(lr_account);
 
-        // Currency and VASP setup
+        // Currency setup
         Libra::initialize(lr_account);
-        VASP::initialize(lr_account);
 
         // Currency setup
         Coin1::initialize(lr_account, tc_account);
@@ -82,7 +80,6 @@ module Genesis {
             copy dummy_auth_key_prefix,
         );
 
-        LibraTransactionTimeout::initialize(lr_account);
         LibraSystem::initialize_validator_set(
             lr_account,
         );
@@ -94,10 +91,9 @@ module Genesis {
         );
         LibraBlock::initialize_block_metadata(lr_account);
         LibraWriteSetManager::initialize(lr_account);
-        LibraTimestamp::initialize(lr_account);
 
         let lr_rotate_key_cap = LibraAccount::extract_key_rotation_capability(lr_account);
-        LibraAccount::rotate_authentication_key(&lr_rotate_key_cap, copy genesis_auth_key);
+        LibraAccount::rotate_authentication_key(&lr_rotate_key_cap, lr_auth_key);
         LibraAccount::restore_key_rotation_capability(lr_rotate_key_cap);
 
         LibraTransactionPublishingOption::initialize(
@@ -113,10 +109,8 @@ module Genesis {
         );
 
         let tc_rotate_key_cap = LibraAccount::extract_key_rotation_capability(tc_account);
-        LibraAccount::rotate_authentication_key(&tc_rotate_key_cap, copy genesis_auth_key);
+        LibraAccount::rotate_authentication_key(&tc_rotate_key_cap, tc_auth_key);
         LibraAccount::restore_key_rotation_capability(tc_rotate_key_cap);
-
-        // Mark that genesis has finished. This must appear as the last call.
         LibraTimestamp::set_time_has_started(lr_account);
     }
 

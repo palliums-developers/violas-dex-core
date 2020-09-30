@@ -49,7 +49,7 @@ module ExDep {
     }
 
     fun admin_addr(): address {
-        {{aa}}
+        {{super}}
     }
 
     public fun initialize(account: &signer) {
@@ -226,6 +226,8 @@ module ExDep {
         ((numerator / denominator) as u64)
     }
 }
+
+
 
 
 //! new-transaction
@@ -462,7 +464,7 @@ module Exchange {
         let reserves = borrow_global_mut<Reserves>(admin_addr());
         let i = 0;
         let amount_out = 0;
-        while(i < len - 1){
+        while(i < len - 1) {
             let amt_in = *Vector::borrow(&amounts, i);
             let id_in = (*Vector::borrow(&path, i) as u64);
             let id_out = (*Vector::borrow(&path, i + 1) as u64);
@@ -486,8 +488,6 @@ module Exchange {
             i = i + 1;
         };
         assert(amount_out >= amount_out_min, 5081);
-        let coina = Libra::currency_code<CoinA>();
-        let coinb = Libra::currency_code<CoinB>();
         ExDep::c_s_event(coina, amount_in, coinb, amount_out, data);
         if(path0 < pathn){
             deposit<CoinA>(account, amount_in);
@@ -503,7 +503,7 @@ module Exchange {
 
 
 //! new-transaction
-//! sender: aa
+//! sender: super
 script {
 use {{super}}::Exchange;
 use 0x1::LBR::LBR;
@@ -518,6 +518,7 @@ fun main(account: &signer) {
 }
 // check: EXECUTED
 
+
 //! new-transaction
 //! sender: a0
 script {
@@ -530,6 +531,8 @@ fun main(account: &signer) {
 }
 }
 // check: EXECUTED
+
+
 
 //! new-transaction
 //! sender: a1
@@ -556,6 +559,7 @@ fun main(account: &signer) {
 }
 }
 // check: EXECUTED
+
 
 //! new-transaction
 //! sender: aa
@@ -648,7 +652,6 @@ fun main(account: &signer) {
 }
 
 // check: EXECUTED
-
 
 
 //! new-transaction

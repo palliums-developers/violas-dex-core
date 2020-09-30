@@ -110,16 +110,26 @@ module RecoveryAddress {
         abort Errors::invalid_argument(EACCOUNT_NOT_RECOVERABLE)
     }
     spec fun rotate_authentication_key {
-        pragma verify_duration_estimate = 100; // TODO: occasional timeout
+        include RotateAuthenticationKeyAbortsIf;
+        include RotateAuthenticationKeyEnsures;
+    }
+    spec schema RotateAuthenticationKeyAbortsIf {
+        account: signer;
+        recovery_address: address;
+        to_recover: address;
+        new_key: vector<u8>;
         aborts_if !spec_is_recovery_address(recovery_address) with Errors::NOT_PUBLISHED;
         aborts_if !exists<LibraAccount::LibraAccount>(to_recover) with Errors::NOT_PUBLISHED;
         aborts_if len(new_key) != 32;
         aborts_if !spec_holds_key_rotation_cap_for(recovery_address, to_recover);
         aborts_if !(Signer::spec_address_of(account) == recovery_address
                     || Signer::spec_address_of(account) == to_recover);
+    }
+    spec schema RotateAuthenticationKeyEnsures {
+        to_recover: address;
+        new_key: vector<u8>;
         ensures global<LibraAccount::LibraAccount>(to_recover).authentication_key == new_key;
     }
-
 
     /// Add `to_recover` to the `RecoveryAddress` resource under `recovery_address`.
     /// Aborts if `to_recover.address` and `recovery_address belong to different VASPs, or if
@@ -141,9 +151,15 @@ module RecoveryAddress {
         );
     }
     spec fun add_rotation_capability {
-        pragma verify = false; // TODO: timeout
+        aborts_if !spec_is_recovery_address(recovery_address) with Errors::NOT_PUBLISHED;
+        let to_recover_address = LibraAccount::key_rotation_capability_address(to_recover);
+        aborts_if !VASP::is_vasp(recovery_address) with Errors::INVALID_ARGUMENT;
+        aborts_if !VASP::is_vasp(to_recover_address) with Errors::INVALID_ARGUMENT;
+        aborts_if VASP::spec_parent_address(recovery_address) != VASP::spec_parent_address(to_recover_address)
+            with Errors::INVALID_ARGUMENT;
+        ensures spec_get_rotation_caps(recovery_address)[
+            len(spec_get_rotation_caps(recovery_address)) - 1] == to_recover;
     }
-
     // ****************** SPECIFICATIONS *******************
 
     /// # Module specifications
@@ -184,14 +200,10 @@ module RecoveryAddress {
     /// ## RecoveryAddress has its own KeyRotationCapability
 
     spec module {
-        // TODO: add_rotation_capability does not seem to respect this invariant. Is the invariant wrong or
-        // the function?
-        /*
-        invariant [global, on_update]
+        invariant [global, isolated]
             forall addr1: address where spec_is_recovery_address(addr1):
                 len(spec_get_rotation_caps(addr1)) > 0 &&
                 spec_get_rotation_caps(addr1)[0].account_address == addr1;
-        */
     }
 
     /// ## RecoveryAddress resource stays
@@ -216,18 +228,12 @@ module RecoveryAddress {
     /// ## Only VASPs can be RecoveryAddress
 
     spec module {
-        invariant [global, on_update]
+        invariant [global, isolated]
             forall recovery_addr: address where spec_is_recovery_address(recovery_addr):
                 VASP::is_vasp(recovery_addr);
     }
 
-    /// # Specifications for individual functions
 
-     spec fun add_rotation_capability {
-        aborts_if !spec_is_recovery_address(recovery_address);
-        aborts_if VASP::spec_parent_address(recovery_address) != VASP::spec_parent_address(LibraAccount::key_rotation_capability_address(to_recover));
-        ensures spec_get_rotation_caps(recovery_address)[
-            len(spec_get_rotation_caps(recovery_address)) - 1] == to_recover;
-    }
+
 }
 }
