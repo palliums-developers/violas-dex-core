@@ -1,33 +1,39 @@
 address 0x1 {
+
+/// Allows transactions to be executed out-of-order while ensuring that they are executed at most once.
+/// Nonces are assigned to transactions off-chain by clients submitting the transactions.
+/// It maintains a sliding window bitvector of 128 flags.  A flag of 0 indicates that the transaction
+/// with that nonce has not yet been executed.
+/// When nonce X is recorded, all transactions with nonces lower then X-128 will abort.
 module SlidingNonce {
     use 0x1::Signer;
     use 0x1::Roles;
     use 0x1::Errors;
 
-    /// This struct keep last 128 nonce values in a bit map nonce_mask
-    /// We assume that nonce are generated incrementally, but certain permutation is allowed when nonce are recorded
-    /// For example you can record nonce 10 and then record nonce 9
-    /// When nonce X is recorded, all nonce lower then X-128 will be rejected with code 10001(see below)
-    /// In a nutshell, min_nonce records minimal nonce allowed
-    /// And nonce_mask contains a bitmap for nonce in range [min_nonce; min_nonce+127]
     resource struct SlidingNonce {
+        /// Minimum nonce in sliding window. All transactions with smaller
+        /// nonces will be automatically rejected, since the window cannot
+        /// tell whether they have been executed or not.
         min_nonce: u64,
+        /// Bit-vector of window of nonce values
         nonce_mask: u128,
     }
 
     /// The `SlidingNonce` resource is in an invalid state
     const ESLIDING_NONCE: u64 = 0;
-    /// The nonce is too old and impossible to ensure whether it's duplicated or not
+    /// The nonce aborted because it's too old (nonce smaller than `min_nonce`)
     const ENONCE_TOO_OLD: u64 = 1;
-    /// The nonce is too far in the future - this is not allowed to protect against nonce exhaustion
+    /// The nonce is too large - this protects against nonce exhaustion
     const ENONCE_TOO_NEW: u64 = 2;
     /// The nonce was already recorded previously
     const ENONCE_ALREADY_RECORDED: u64 = 3;
+    /// The sliding nonce resource was already published
+    const ENONCE_ALREADY_PUBLISHED: u64 = 4;
 
     /// Size of SlidingNonce::nonce_mask in bits.
     const NONCE_MASK_SIZE: u64 = 128;
 
-    /// Calls try_record_nonce and aborts transaction if returned code is non-0
+    /// Calls `try_record_nonce` and aborts transaction if returned code is non-0
     public fun record_nonce_or_abort(account: &signer, seq_nonce: u64) acquires SlidingNonce {
         let code = try_record_nonce(account, seq_nonce);
         assert(code == 0, Errors::invalid_argument(code));
@@ -80,8 +86,9 @@ module SlidingNonce {
     }
 
     spec fun try_record_nonce {
-        /// > TODO: turn verify on when we are ready to specify this function.
         /// It is currently assumed that this function raises no arithmetic overflow/underflow.
+        /// >Note: Verification is turned off. For verifying callers, this is effectively abstracted into a function
+        /// that returns arbitrary results because `spec_try_record_nonce` is uninterpreted.
         pragma opaque, verify = false;
         ensures result == spec_try_record_nonce(account, seq_nonce);
         aborts_if !exists<SlidingNonce>(Signer::spec_address_of(account)) with Errors::NOT_PUBLISHED;
@@ -93,11 +100,12 @@ module SlidingNonce {
     /// Publishes nonce resource for `account`
     /// This is required before other functions in this module can be called for `account
     public fun publish(account: &signer) {
+        assert(!exists<SlidingNonce>(Signer::address_of(account)), Errors::invalid_argument(ENONCE_ALREADY_PUBLISHED));
         move_to(account, SlidingNonce {  min_nonce: 0, nonce_mask: 0 });
     }
 
     /// Publishes nonce resource into specific account
-    /// Only the libra root account can create this resource for different accounts
+    /// Only the Libra root account can create this resource for different accounts
     public fun publish_nonce_resource(
         lr_account: &signer,
         account: &signer
@@ -107,7 +115,9 @@ module SlidingNonce {
             min_nonce: 0,
             nonce_mask: 0,
         };
-        move_to(account, new_resource)
+        assert(!exists<SlidingNonce>(Signer::address_of(account)),
+                Errors::invalid_argument(ENONCE_ALREADY_PUBLISHED));
+        move_to(account, new_resource);
     }
 
 }

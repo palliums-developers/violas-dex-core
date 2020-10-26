@@ -2,7 +2,6 @@ address 0x1 {
 module ExDep {
     use 0x1::LibraAccount;
     use 0x1::Signer;
-    use 0x1::Debug;
     use 0x1::LCS;
     use 0x1::Event::{Self, EventHandle};
 
@@ -88,7 +87,6 @@ module ExDep {
             deposit_amountb: v4,
             mint_amount: v5
         };
-        Debug::print(&mint_event);
         let data = LCS::to_bytes<MintEvent>(&mint_event);
         let event = Event {
             etype: 1,
@@ -110,7 +108,6 @@ module ExDep {
             withdraw_amountb: v4,
             burn_amount: v5
         };
-        Debug::print(&burn_event);
         let data = LCS::to_bytes<BurnEvent>(&burn_event);
         let event = Event {
             etype: 2,
@@ -133,7 +130,6 @@ module ExDep {
             output_amount: v4,
             data: v5
         };
-        Debug::print(&swap_event);
         let data = LCS::to_bytes<SwapEvent>(&swap_event);
         let event = Event {
             etype: 3,

@@ -1,15 +1,16 @@
 //! account: super
-//! account: aa, 120000000000000000
+//! account: sally, 0, 0, address
+//! account: sally1, 0, 0, address
+
 //! account: a0, 120000000000000000Coin1
-//! account: a1, 80000000000000000Coin2
-//! account: a2, 40000000000000000Coin2
+//! account: a1, 120000000000000000Coin1
+//! account: a2, 120000000000000000Coin1
 
 //! new-transaction
 //! sender: super
 module ExDep {
     use 0x1::LibraAccount;
     use 0x1::Signer;
-    use 0x1::Debug;
     use 0x1::LCS;
     use 0x1::Event::{Self, EventHandle};
 
@@ -95,7 +96,6 @@ module ExDep {
             deposit_amountb: v4,
             mint_amount: v5
         };
-        Debug::print(&mint_event);
         let data = LCS::to_bytes<MintEvent>(&mint_event);
         let event = Event {
             etype: 1,
@@ -117,7 +117,6 @@ module ExDep {
             withdraw_amountb: v4,
             burn_amount: v5
         };
-        Debug::print(&burn_event);
         let data = LCS::to_bytes<BurnEvent>(&burn_event);
         let event = Event {
             etype: 2,
@@ -140,7 +139,6 @@ module ExDep {
             output_amount: v4,
             data: v5
         };
-        Debug::print(&swap_event);
         let data = LCS::to_bytes<SwapEvent>(&swap_event);
         let event = Event {
             etype: 3,
@@ -226,8 +224,6 @@ module ExDep {
         ((numerator / denominator) as u64)
     }
 }
-
-
 
 
 //! new-transaction
@@ -503,17 +499,144 @@ module Exchange {
 
 
 //! new-transaction
+//! sender: libraroot
+// Change option to CustomModule
+script {
+use 0x1::LibraTransactionPublishingOption;
+fun main(config: &signer) {
+    LibraTransactionPublishingOption::set_open_module(config, false)
+}
+}
+// check: "Keep(EXECUTED)"
+
+//! new-transaction
+//! sender: libraroot
+address 0x1 {
+module Coin2 {
+    use 0x1::FixedPoint32;
+    use 0x1::Libra;
+
+    struct Coin2 { }
+
+    public fun initialize(lr_account: &signer, tc_account: &signer) {
+        // Register the Coin2 currency.
+        Libra::register_SCS_currency<Coin2>(
+            lr_account,
+            tc_account,
+            FixedPoint32::create_from_rational(1, 2), // exchange rate to LBR
+            1000000000, // scaling_factor = 10^9
+            100,     // fractional_part = 10^2
+            b"Coin2",
+        )
+    }
+}
+}
+// check: "Keep(EXECUTED)"
+
+//! new-transaction
+//! sender: libraroot
+//! execute-as: blessed
+script {
+use 0x1::TransactionFee;
+use 0x1::Coin2::{Self, Coin2};
+fun main(lr_account: &signer, tc_account: &signer) {
+    Coin2::initialize(lr_account, tc_account);
+    TransactionFee::add_txn_fee_currency<Coin2>(tc_account);
+}
+}
+// check: "Keep(EXECUTED)"
+
+// END: registration of a currency
+
+//! new-transaction
+//! sender: blessed
+//! type-args: 0x1::Coin2::Coin2
+//! args: 0, {{sally}}, {{sally::auth_key}}, b"bob", false
+stdlib_script::create_designated_dealer
+// check: "Keep(EXECUTED)"
+
+//! new-transaction
+//! sender: blessed
+script {
+use 0x1::Coin2::Coin2;
+use 0x1::LibraAccount;
+fun main(account: &signer) {
+    LibraAccount::tiered_mint<Coin2>(account, {{sally}}, 120000000000000000, 3);
+}
+}
+
+
+//! new-transaction
+//! sender: libraroot
+address 0x1 {
+module Coin3 {
+    use 0x1::FixedPoint32;
+    use 0x1::Libra;
+
+    struct Coin3 { }
+
+    public fun initialize(lr_account: &signer, tc_account: &signer) {
+        // Register the Coin3 currency.
+        Libra::register_SCS_currency<Coin3>(
+            lr_account,
+            tc_account,
+            FixedPoint32::create_from_rational(1, 2), // exchange rate to LBR
+            1000000000, // scaling_factor = 10^9
+            100,     // fractional_part = 10^2
+            b"Coin3",
+        )
+    }
+}
+}
+// check: "Keep(EXECUTED)"
+
+
+//! new-transaction
+//! sender: libraroot
+//! execute-as: blessed
+script {
+use 0x1::TransactionFee;
+use 0x1::Coin3::{Self, Coin3};
+fun main(lr_account: &signer, tc_account: &signer) {
+    Coin3::initialize(lr_account, tc_account);
+    TransactionFee::add_txn_fee_currency<Coin3>(tc_account);
+}
+}
+// check: "Keep(EXECUTED)"
+
+
+// END: registration of a currency
+
+//! new-transaction
+//! sender: blessed
+//! type-args: 0x1::Coin3::Coin3
+//! args: 0, {{sally1}}, {{sally1::auth_key}}, b"bob", false
+stdlib_script::create_designated_dealer
+// check: "Keep(EXECUTED)"
+
+
+//! new-transaction
+//! sender: blessed
+script {
+use 0x1::Coin3::Coin3;
+use 0x1::LibraAccount;
+fun main(account: &signer) {
+    LibraAccount::tiered_mint<Coin3>(account, {{sally1}}, 120000000000000000, 3);
+}
+}
+
+//! new-transaction
 //! sender: super
 script {
 use {{super}}::Exchange;
-use 0x1::LBR::LBR;
 use 0x1::Coin1::Coin1;
 use 0x1::Coin2::Coin2;
+use 0x1::Coin3::Coin3;
 fun main(account: &signer) {
     Exchange::initialize(account);
-    Exchange::add_currency<LBR>(account);
     Exchange::add_currency<Coin1>(account);
     Exchange::add_currency<Coin2>(account);
+    Exchange::add_currency<Coin3>(account);
 }
 }
 // check: EXECUTED
@@ -523,26 +646,25 @@ fun main(account: &signer) {
 //! sender: a0
 script {
 use 0x1::LibraAccount;
-use 0x1::LBR::LBR;
 use 0x1::Coin2::Coin2;
+use 0x1::Coin3::Coin3;
 fun main(account: &signer) {
-    LibraAccount::add_currency<LBR>(account);
     LibraAccount::add_currency<Coin2>(account);
+    LibraAccount::add_currency<Coin3>(account);
 }
 }
 // check: EXECUTED
-
 
 
 //! new-transaction
 //! sender: a1
 script {
 use 0x1::LibraAccount;
-use 0x1::Coin1::Coin1;
-use 0x1::LBR::LBR;
+use 0x1::Coin2::Coin2;
+use 0x1::Coin3::Coin3;
 fun main(account: &signer) {
-    LibraAccount::add_currency<LBR>(account);
-    LibraAccount::add_currency<Coin1>(account);
+    LibraAccount::add_currency<Coin2>(account);
+    LibraAccount::add_currency<Coin3>(account);
 }
 }
 // check: EXECUTED
@@ -551,106 +673,89 @@ fun main(account: &signer) {
 //! sender: a2
 script {
 use 0x1::LibraAccount;
-use 0x1::LBR::LBR;
-use 0x1::Coin1::Coin1;
-fun main(account: &signer) {
-    LibraAccount::add_currency<LBR>(account);
-    LibraAccount::add_currency<Coin1>(account);
-}
-}
-// check: EXECUTED
-
-
-//! new-transaction
-//! sender: aa
-script {
-use 0x1::LBR::LBR;
-use 0x1::LibraAccount;
-fun main(account: &signer) {
-    let with_cap = LibraAccount::extract_withdraw_capability(account);
-    LibraAccount::pay_from<LBR>(&with_cap, {{a0}}, 40000000000000000, x"", x"");
-    let amt = LibraAccount::balance<LBR>({{a0}});
-    assert(amt == 40000000000000000, 9001);
-
-    LibraAccount::pay_from<LBR>(&with_cap, {{a1}}, 40000000000000000, x"", x"");
-    amt = LibraAccount::balance<LBR>({{a1}});
-    assert(amt == 40000000000000000, 9002);
-
-    LibraAccount::pay_from<LBR>(&with_cap, {{a2}}, 40000000000000000, x"", x"");
-    amt = LibraAccount::balance<LBR>({{a2}});
-    assert(amt == 40000000000000000, 9003);
-    LibraAccount::restore_withdraw_capability(with_cap);
-}
-}
-// check: EXECUTED
-
-
-//! new-transaction
-//! sender: a0
-script {
-use 0x1::Coin1::Coin1;
-use 0x1::LibraAccount;
-use 0x1::Debug;
-fun main(account: &signer) {
-    let amt = LibraAccount::balance<Coin1>({{a0}});
-    Debug::print(&amt);
-    let with_cap = LibraAccount::extract_withdraw_capability(account);
-    LibraAccount::pay_from<Coin1>(&with_cap, {{a1}}, 40000000000000000, x"", x"");
-    LibraAccount::pay_from<Coin1>(&with_cap, {{a2}}, 40000000000000000, x"", x"");
-    LibraAccount::restore_withdraw_capability(with_cap);
-    amt = LibraAccount::balance<Coin1>({{a0}});
-    assert(amt == 40000000000000000, 9004);
-    amt = LibraAccount::balance<Coin1>({{a1}});
-    assert(amt == 40000000000000000, 9005);
-    amt = LibraAccount::balance<Coin1>({{a2}});
-    assert(amt == 40000000000000000, 9006)
-}
-}
-// check: EXECUTED
-
-
-//! new-transaction
-//! sender: a1
-script {
 use 0x1::Coin2::Coin2;
-use 0x1::LibraAccount;
-use 0x1::Debug;
+use 0x1::Coin3::Coin3;
 fun main(account: &signer) {
-    let amt = LibraAccount::balance<Coin2>({{a1}});
-    Debug::print(&amt);
+    LibraAccount::add_currency<Coin2>(account);
+    LibraAccount::add_currency<Coin3>(account);
+}
+}
+// check: EXECUTED
+
+
+//! new-transaction
+//! sender: sally
+script {
+use 0x1::LibraAccount;
+use 0x1::Coin2::Coin2;
+fun main(account: &signer) {
     let with_cap = LibraAccount::extract_withdraw_capability(account);
     LibraAccount::pay_from<Coin2>(&with_cap, {{a0}}, 40000000000000000, x"", x"");
+    let amt = LibraAccount::balance<Coin2>({{a0}});
+    assert(amt == 40000000000000000, 9001);
+
+    LibraAccount::pay_from<Coin2>(&with_cap, {{a1}}, 40000000000000000, x"", x"");
+    amt = LibraAccount::balance<Coin2>({{a1}});
+    assert(amt == 40000000000000000, 9002);
+
+    LibraAccount::pay_from<Coin2>(&with_cap, {{a2}}, 40000000000000000, x"", x"");
+    amt = LibraAccount::balance<Coin2>({{a2}});
+    assert(amt == 40000000000000000, 9003);
+
     LibraAccount::restore_withdraw_capability(with_cap);
-    amt = LibraAccount::balance<Coin2>({{a0}});
-    assert(amt == 40000000000000000, 9005);
 }
 }
-// check: EXECUTED
+// check: "Keep(EXECUTED)"
+
+
+//! new-transaction
+//! sender: sally1
+script {
+use 0x1::LibraAccount;
+use 0x1::Coin3::Coin3;
+fun main(account: &signer) {
+    let with_cap = LibraAccount::extract_withdraw_capability(account);
+    LibraAccount::pay_from<Coin3>(&with_cap, {{a0}}, 40000000000000000, x"", x"");
+    let amt = LibraAccount::balance<Coin3>({{a0}});
+    assert(amt == 40000000000000000, 9001);
+
+    LibraAccount::pay_from<Coin3>(&with_cap, {{a1}}, 40000000000000000, x"", x"");
+    amt = LibraAccount::balance<Coin3>({{a1}});
+    assert(amt == 40000000000000000, 9002);
+
+    LibraAccount::pay_from<Coin3>(&with_cap, {{a2}}, 40000000000000000, x"", x"");
+    amt = LibraAccount::balance<Coin3>({{a2}});
+    assert(amt == 40000000000000000, 9003);
+
+    LibraAccount::restore_withdraw_capability(with_cap);
+}
+}
+// check: "Keep(EXECUTED)"
 
 
 //! new-transaction
 //! sender: a0
+
 script {
 use {{super}}::Exchange;
-use 0x1::Coin1::Coin1;
 use 0x1::Coin2::Coin2;
+use 0x1::Coin3::Coin3;
 use 0x1::LibraAccount;
 
 fun main(account: &signer) {
-    let c1 = LibraAccount::balance<Coin1>({{a0}});
-    let c2 = LibraAccount::balance<Coin2>({{a0}});
-    let (_, c3, c4) = Exchange::get_reserve<Coin1, Coin2>();
-    Exchange::add_liquidity<Coin1, Coin2>(account, 10000000000000, 40000000000000, 0, 0);
-    let liq_ba = Exchange::get_liquidity_balance<Coin1, Coin2>({{a0}});
+    let c1 = LibraAccount::balance<Coin2>({{a0}});
+    let c2 = LibraAccount::balance<Coin3>({{a0}});
+    let (_, c3, c4) = Exchange::get_reserve<Coin2, Coin3>();
+    Exchange::add_liquidity<Coin2, Coin3>(account, 10000000000000, 40000000000000, 0, 0);
+    let liq_ba = Exchange::get_liquidity_balance<Coin2, Coin3>({{a0}});
     assert(liq_ba == 20000000000000, 5001);
-    let c11 = LibraAccount::balance<Coin1>({{a0}});
-    let c22 = LibraAccount::balance<Coin2>({{a0}});
-    let (_, c33, c44) = Exchange::get_reserve<Coin1, Coin2>();
+    let c11 = LibraAccount::balance<Coin2>({{a0}});
+    let c22 = LibraAccount::balance<Coin3>({{a0}});
+    let (_, c33, c44) = Exchange::get_reserve<Coin2, Coin3>();
     assert(c33 - c3 == 10000000000000 && c44 - c4 == 40000000000000, 6001);
     assert((c1 - 10000000000000) == c11 && (c2 - 40000000000000) == c22, 6000);
 }
 }
-
 // check: EXECUTED
 
 
@@ -658,17 +763,11 @@ fun main(account: &signer) {
 //! sender: a0
 script {
 use {{super}}::Exchange;
-use 0x1::Coin1::Coin1;
 use 0x1::Coin2::Coin2;
-use 0x1::Debug;
+use 0x1::Coin3::Coin3;
 
 fun main(account: &signer) {
-    Exchange::add_liquidity<Coin1, Coin2>(account, 8000000000000, 100000000000000, 0, 0);
-    let liq_ba = Exchange::get_liquidity_balance<Coin1, Coin2>({{a0}});
-    Debug::print(&liq_ba);
-    let (_, c33, c44) = Exchange::get_reserve<Coin1, Coin2>();
-    Debug::print(&c33);
-    Debug::print(&c44);
+    Exchange::add_liquidity<Coin2, Coin3>(account, 8000000000000, 100000000000000, 0, 0);
 }
 }
 
@@ -679,24 +778,22 @@ fun main(account: &signer) {
 //! sender: a0
 script {
 use {{super}}::Exchange;
-use 0x1::Coin1::Coin1;
 use 0x1::Coin2::Coin2;
+use 0x1::Coin3::Coin3;
 use 0x1::LibraAccount;
-use 0x1::Debug;
 
 fun main(account: &signer) {
-    let liq_ba = Exchange::get_liquidity_balance<Coin1, Coin2>({{a0}});
-    Debug::print(&liq_ba);
-    let c1 = LibraAccount::balance<Coin1>({{a0}});
-    let c2 = LibraAccount::balance<Coin2>({{a0}});
-    let (total, c3, c4) = Exchange::get_reserve<Coin1, Coin2>();
+    let liq_ba = Exchange::get_liquidity_balance<Coin2, Coin3>({{a0}});
+    let c1 = LibraAccount::balance<Coin2>({{a0}});
+    let c2 = LibraAccount::balance<Coin3>({{a0}});
+    let (total, c3, c4) = Exchange::get_reserve<Coin2, Coin3>();
     assert(liq_ba == total, 5010);
 
-    Exchange::remove_liquidity<Coin1, Coin2>(account, liq_ba/2, 0, 0);
-    Exchange::remove_liquidity<Coin1, Coin2>(account, liq_ba/2, 0, 0);
-    let c11 = LibraAccount::balance<Coin1>({{a0}});
-    let c22 = LibraAccount::balance<Coin2>({{a0}});
-    let (total1, c33, c44) = Exchange::get_reserve<Coin1, Coin2>();
+    Exchange::remove_liquidity<Coin2, Coin3>(account, liq_ba/2, 0, 0);
+    Exchange::remove_liquidity<Coin2, Coin3>(account, liq_ba/2, 0, 0);
+    let c11 = LibraAccount::balance<Coin2>({{a0}});
+    let c22 = LibraAccount::balance<Coin3>({{a0}});
+    let (total1, c33, c44) = Exchange::get_reserve<Coin2, Coin3>();
     assert(c33 == 0 && c44 == 0 && total1 == 0, 6001);
     assert((c1 + c3) == c11 && (c2 + c4) == c22, 6000);
 }
@@ -704,55 +801,53 @@ fun main(account: &signer) {
 // check: EXECUTED
 
 
-
 //! new-transaction
 //! sender: a0
 script {
 use {{super}}::Exchange;
-use 0x1::Coin1::Coin1;
 use 0x1::Coin2::Coin2;
+use 0x1::Coin3::Coin3;
 
 fun main(account: &signer) {
-    Exchange::add_liquidity<Coin1, Coin2>(account, 50000000000000, 100000000000000, 0, 0);
+    Exchange::add_liquidity<Coin2, Coin3>(account, 50000000000000, 100000000000000, 0, 0);
 }
 }
 
 // check: EXECUTED
 
 
-
 //! new-transaction
 //! sender: a1
 script {
 use {{super}}::Exchange;
-use 0x1::Coin1::Coin1;
 use 0x1::Coin2::Coin2;
+use 0x1::Coin3::Coin3;
 use 0x1::LibraAccount;
 use 0x1::Vector;
 use 0x1::Signer;
 
 fun main(account: &signer) {
-    let c1 = LibraAccount::balance<Coin1>({{a1}});
-    let c2 = LibraAccount::balance<Coin2>({{a1}});
-    let (_, c3, c4) = Exchange::get_reserve<Coin1, Coin2>();
+    let c1 = LibraAccount::balance<Coin2>({{a1}});
+    let c2 = LibraAccount::balance<Coin3>({{a1}});
+    let (_, c3, c4) = Exchange::get_reserve<Coin2, Coin3>();
     let path = Vector::empty<u8>();
     Vector::push_back(&mut path, 1);
     Vector::push_back(&mut path, 2);
-    Exchange::swap<Coin1, Coin2>(account, Signer::address_of(account), 10000000000000, 0, path, Vector::empty<u8>());
-    let liq_ba = Exchange::get_liquidity_balance<Coin1, Coin2>({{a0}});
-    let c11 = LibraAccount::balance<Coin1>({{a1}});
-    let c22 = LibraAccount::balance<Coin2>({{a1}});
-    let (t1, c33, c44) = Exchange::get_reserve<Coin1, Coin2>();
+    Exchange::swap<Coin2, Coin3>(account, Signer::address_of(account), 10000000000000, 0, path, Vector::empty<u8>());
+    let liq_ba = Exchange::get_liquidity_balance<Coin2, Coin3>({{a0}});
+    let c11 = LibraAccount::balance<Coin2>({{a1}});
+    let c22 = LibraAccount::balance<Coin3>({{a1}});
+    let (t1, c33, c44) = Exchange::get_reserve<Coin2, Coin3>();
     assert(liq_ba == t1, 7000);
     assert(c33 - c3 == 10000000000000 && c4 - c44 == 16662499791656, 7001);
     assert((c1 - 10000000000000) == c11 && (c2 + 16662499791656) == c22, 7002);
     let path1 = Vector::empty<u8>();
     Vector::push_back(&mut path1, 2);
     Vector::push_back(&mut path1, 1);
-    Exchange::swap<Coin1, Coin2>(account, Signer::address_of(account), 10000000000000, 0, path1, Vector::empty<u8>());
-    let c111 = LibraAccount::balance<Coin1>({{a1}});
-    let c222 = LibraAccount::balance<Coin2>({{a1}});
-    let (_, c333, c444) = Exchange::get_reserve<Coin1, Coin2>();
+    Exchange::swap<Coin2, Coin3>(account, Signer::address_of(account), 10000000000000, 0, path1, Vector::empty<u8>());
+    let c111 = LibraAccount::balance<Coin2>({{a1}});
+    let c222 = LibraAccount::balance<Coin3>({{a1}});
+    let (_, c333, c444) = Exchange::get_reserve<Coin2, Coin3>();
     assert(c33 - c333 == 6426562510765 && c444 - c44 == 10000000000000, 7011);
     assert((c22 - 10000000000000) == c222 && (c111 - 6426562510765) == c11, 7012);
 }
@@ -761,18 +856,17 @@ fun main(account: &signer) {
 // check: EXECUTED
 
 
-
 //! new-transaction
 //! sender: a0
 script {
 use {{super}}::Exchange;
-use 0x1::Coin1::Coin1;
 use 0x1::Coin2::Coin2;
+use 0x1::Coin3::Coin3;
 
 fun main(account: &signer) {
-    let (total, _, _) = Exchange::get_reserve<Coin1, Coin2>();
-    Exchange::remove_liquidity<Coin1, Coin2>(account, total, 0, 0);
-    let (t1, c33, c44) = Exchange::get_reserve<Coin1, Coin2>();
+    let (total, _, _) = Exchange::get_reserve<Coin2, Coin3>();
+    Exchange::remove_liquidity<Coin2, Coin3>(account, total, 0, 0);
+    let (t1, c33, c44) = Exchange::get_reserve<Coin2, Coin3>();
     assert(c33 == 0 && c44 == 0 && t1 == 0, 6001);
 }
 }
@@ -783,13 +877,13 @@ fun main(account: &signer) {
 //! sender: a0
 script {
 use {{super}}::Exchange;
-use 0x1::Coin1::Coin1;
 use 0x1::Coin2::Coin2;
-use 0x1::LBR::LBR;
+use 0x1::Coin3::Coin3;
+use 0x1::Coin1::Coin1;
 
 fun main(account: &signer) {
-    Exchange::add_liquidity<LBR, Coin1>(account, 40000000000000, 80000000000000, 0, 0);
-    Exchange::add_liquidity<Coin1, Coin2>(account, 50000000000000, 50000000000000, 0, 0);
+    Exchange::add_liquidity<Coin1, Coin2>(account, 40000000000000, 80000000000000, 0, 0);
+    Exchange::add_liquidity<Coin2, Coin3>(account, 50000000000000, 50000000000000, 0, 0);
 }
 }
 
@@ -800,8 +894,8 @@ fun main(account: &signer) {
 //! sender: a2
 script {
 use {{super}}::Exchange;
-use 0x1::LBR::LBR;
-use 0x1::Coin2::Coin2;
+use 0x1::Coin1::Coin1;
+use 0x1::Coin3::Coin3;
 use 0x1::Vector;
 use 0x1::Signer;
 
@@ -810,13 +904,13 @@ fun main(account: &signer) {
     Vector::push_back(&mut path, 0);
     Vector::push_back(&mut path, 1);
     Vector::push_back(&mut path, 2);
-    Exchange::swap<LBR, Coin2>(account, Signer::address_of(account), 10000000000000, 0, path, Vector::empty<u8>());
+    Exchange::swap<Coin1, Coin3>(account, Signer::address_of(account), 10000000000000, 0, path, Vector::empty<u8>());
 
     let path1 = Vector::empty<u8>();
     Vector::push_back(&mut path1, 2);
     Vector::push_back(&mut path1, 1);
     Vector::push_back(&mut path1, 0);
-    Exchange::swap<LBR, Coin2>(account, Signer::address_of(account), 10000000000000, 0, path1, Vector::empty<u8>());
+    Exchange::swap<Coin1, Coin3>(account, Signer::address_of(account), 10000000000000, 0, path1, Vector::empty<u8>());
 
 }
 }

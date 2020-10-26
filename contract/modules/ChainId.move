@@ -1,4 +1,7 @@
 address 0x1 {
+/// The chain id distinguishes between different chains (e.g., testnet and the main Libra network).
+/// One important role is to prevent transactions intended for one chain from being executed on another.
+/// This code provides a container for storing a chain id and functions to initialize and get it.
 module ChainId {
     use 0x1::CoreAddresses;
     use 0x1::Errors;
@@ -26,8 +29,22 @@ module ChainId {
         borrow_global<ChainId>(CoreAddresses::LIBRA_ROOT_ADDRESS()).id
     }
 
+    // =================================================================
+    // Module Specification
+
+    spec module {} // Switch to module documentation context
+
+    /// # Initialization
+
+    /// When Libra is operating, the chain id is always available.
     spec module {
         invariant [global] LibraTimestamp::is_operating() ==> exists<ChainId>(CoreAddresses::LIBRA_ROOT_ADDRESS());
+    }
+
+    /// # Helper Functions
+
+    spec define spec_get_chain_id(): u8 {
+        global<ChainId>(CoreAddresses::LIBRA_ROOT_ADDRESS()).id
     }
 }
 }
