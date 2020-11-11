@@ -78,7 +78,7 @@ module LibraVMConfig {
 
         // The permission "UpdateVMConfig" is granted to LibraRoot [[H11]][PERMISSION].
         Roles::assert_libra_root(lr_account);
-
+               
         let gas_constants = GasConstants {
             global_memory_per_byte_cost: 4,
             global_memory_per_byte_write_cost: 9,
@@ -88,7 +88,7 @@ module LibraVMConfig {
             maximum_number_of_gas_units: 4000000,
             min_price_per_gas_unit: 0,
             max_price_per_gas_unit: 10000,
-            max_transaction_size_in_bytes: 4096,
+            max_transaction_size_in_bytes: 16384,
             gas_unit_scaling_factor: 1000,
             default_account_size: 800,
         };

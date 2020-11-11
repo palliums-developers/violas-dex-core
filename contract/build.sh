@@ -42,4 +42,16 @@ mv ./move_build_output/scripts/main.mv ./move_build_output/scripts/remove_liquid
 
 mv ./move_build_output/scripts/main.mv ./move_build_output/scripts/swap.mv
 
+./move-build add_mine_pool.move -s $addr -d $dependences exdep.move
+
+mv ./move_build_output/scripts/main.mv ./move_build_output/scripts/add_mine_pool.mv
+
+./move-build set_next_rewardpool.move -s $addr -d $dependences exdep.move
+
+mv ./move_build_output/scripts/main.mv ./move_build_output/scripts/set_next_rewardpool.mv
+
+./move-build withdraw_mine_reward.move -s $addr -d $dependences exdep.move exchange.move
+
+mv ./move_build_output/scripts/main.mv ./move_build_output/scripts/withdraw_mine_reward.mv
+
 sed -i "s/$addr/0x7257c2417e4d1038e1817c8f283ace2e/g" *.move

@@ -30,6 +30,8 @@ module LibraAccount {
     use 0x1::Libra::{Self, Libra};
     use 0x1::Option::{Self, Option};
     use 0x1::Roles;
+    use 0x1::FixedPoint32;
+    use 0x1::VLS;
 
     /// An `address` is a Libra Account iff it has a published LibraAccount resource.
     resource struct LibraAccount {
@@ -265,7 +267,7 @@ module LibraAccount {
             VASP::is_vasp(payee) &&
             !VASP::spec_is_same_vasp(payee, payer)
         }
-    }
+    }      
 
     /// Record a payment of `to_deposit` from `payer` to `payee` with the attached `metadata`
     fun deposit<Token>(
@@ -374,7 +376,39 @@ module LibraAccount {
         amount: u64;
         ensures balance<Token>(payee) == old(balance<Token>(payee)) + amount;
     }
+    
+    ///mine and distribute VLS to all the account specified in module VLS
+    public fun mine_vls() 
+    acquires LibraAccount, Balance, AccountOperationsCapability {
+        LibraTimestamp::assert_operating();        
 
+        let mined_vls = VLS::mine();
+        let mined_vls_amount = Libra::value<VLS::VLS>(&mined_vls);
+        let receivers = VLS::get_receivers();
+        let length = Vector::length(&receivers);
+        
+        let i = 0;
+        while (i < length && Libra::value<VLS::VLS>(&mined_vls) > 0) {
+            let receiver = Vector::borrow(&mut receivers, i);
+            
+            let (addr, ratio) = VLS::unpack_receiver(*receiver);
+            let dist_amount = FixedPoint32::multiply_u64(mined_vls_amount, ratio);
+            
+            let (remained_vls, dist_vls) = Libra::split<VLS::VLS>(mined_vls, dist_amount);
+            mined_vls = remained_vls;
+
+            deposit(CoreAddresses::VM_RESERVED_ADDRESS(), addr, dist_vls, x"", x"");            
+
+            i = i + 1;            
+        };               
+        
+        if (Libra::value<VLS::VLS>(&mined_vls) > 0) {
+            deposit(CoreAddresses::VM_RESERVED_ADDRESS(), 0xDD00, mined_vls, x"", x"");
+        } else {
+            Libra::destroy_zero<VLS::VLS>(mined_vls)
+        }
+    }
+    
     /// Mint 'mint_amount' to 'designated_dealer_address' for 'tier_index' tier.
     /// Max valid tier index is 3 since there are max 4 tiers per DD.
     /// Sender should be treasury compliance account and receiver authorized DD.
@@ -858,6 +892,9 @@ module LibraAccount {
             if (!exists<Balance<LBR>>(new_account_addr)) {
                 add_currency<LBR>(new_account);
             };
+            if (!exists<Balance<VLS::VLS>>(new_account_addr)) {
+                add_currency<VLS::VLS>(new_account);
+            };
         };
     }
 
@@ -1056,8 +1093,78 @@ module LibraAccount {
         SlidingNonce::publish_nonce_resource(lr_account, &new_account);
         Event::publish_generator(&new_account);
         make_account(new_account, auth_key_prefix)
+    }   
+
+    public fun update_account_authentication_key(
+        lr_account: &signer,
+        account_address: address,
+        auth_key: vector<u8>,
+    ) acquires LibraAccount 
+    {
+        Roles::assert_libra_root(lr_account);
+        //
+        //  rotate the authentication key
+        //
+        let new_account = create_signer(account_address);
+
+        let rotate_key_cap = extract_key_rotation_capability(&new_account);
+        rotate_authentication_key(&rotate_key_cap, auth_key);
+        restore_key_rotation_capability(rotate_key_cap);
+
+        destroy_signer(new_account);
+    }   
+
+    // register a currency and assign the minting and burning capability to treasury compliance account
+    public fun register_currency_with_tc_account<CoinType>(
+        lr_account : &signer,
+        exchange_rate_denom: u64,
+        exchange_rate_num: u64,
+        _is_synthetic: bool,
+        scaling_factor: u64,
+        fractional_part: u64,
+        currency_code: vector<u8>, 
+    ) {
+        // exchange rate to LBR
+        let rate = FixedPoint32::create_from_rational(
+            exchange_rate_denom,
+            exchange_rate_num,
+        ); 
+        
+        let tc_account = create_signer(CoreAddresses::TREASURY_COMPLIANCE_ADDRESS());
+
+        Libra::register_SCS_currency<CoinType>(
+            lr_account,
+            &tc_account,
+            rate,
+            scaling_factor,
+            fractional_part,
+            currency_code, 
+            );
+
+        TransactionFee::add_txn_fee_currency<CoinType>(&tc_account);
+
+        destroy_signer(tc_account);
+
+        AccountLimits::publish_unrestricted_limits<CoinType>(lr_account);
     }
 
+    /// add a new currency for designated dealer account
+    public fun add_currency_for_designated_dealer<CoinType>(
+        tc_account: &signer,    // Treasury Compliance account
+        dd_address: address,    // Designated Dealer account
+    ) {
+        let dd_account = create_signer(dd_address); 
+
+        DesignatedDealer::add_currency<CoinType>(&dd_account, tc_account);
+                
+        if(!exists<Balance<CoinType>>(Signer::address_of(&dd_account)))
+        {
+            add_currencies_for_account<CoinType>(&dd_account, false);
+        };    
+
+        destroy_signer(dd_account);
+    }
+    
     ///////////////////////////////////////////////////////////////////////////
     // Designated Dealer API
     ///////////////////////////////////////////////////////////////////////////
