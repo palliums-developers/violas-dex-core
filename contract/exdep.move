@@ -4,6 +4,9 @@ module ExDep {
     use 0x1::Signer;
     use 0x1::LCS;
     use 0x1::Event::{Self, EventHandle};
+    use 0x1::Vector;
+    use 0x1::LibraTimestamp;
+    use 0x1::Coin1::Coin1;
 
     resource struct EventInfo {
         events: EventHandle<Event>,
@@ -40,6 +43,31 @@ module ExDep {
         data: vector<u8>,
     }
 
+    resource struct CurrentRewardPool<CoinA, CoinB> {
+        init_balance: u64,
+        remain_balance: u64,
+        start_time: u64,
+        end_time: u64
+    }
+
+    resource struct NextRewardPool<CoinA, CoinB> {
+        init_balance: u64,
+        start_time: u64,
+        end_time: u64
+    }
+
+    resource struct AllMinersInfo<CoinA, CoinB> {
+        total_lp_amount: u64,
+        all_miners: vector<MinerInfo>,
+    }
+
+    struct MinerInfo {
+        miner_addr: address,
+        lp_amount: u64,
+        mine_balance: u64,
+        start_time: u64,
+    }
+
     fun admin_addr(): address {
         0x7257c2417e4d1038e1817c8f283ace2e
     }
@@ -47,7 +75,132 @@ module ExDep {
     public fun initialize(account: &signer) {
         move_to(account, EventInfo{ events: Event::new_event_handle<Event>(account),
                         factor1: 9997,
-                        factor2: 10000 })
+                        factor2: 10000 });
+    }
+
+    public fun add_mine_pool<CoinA, CoinB>(account: &signer) {
+        assert(Signer::address_of(account)  == admin_addr(), 4007);
+        move_to(account, AllMinersInfo<CoinA, CoinB>{ total_lp_amount: 0, all_miners: Vector::empty<MinerInfo>()});
+
+        move_to(account, CurrentRewardPool<CoinA, CoinB>{ init_balance: 0,
+                        remain_balance: 0,
+                        start_time: 0,
+                        end_time: 0 });
+        move_to(account, NextRewardPool<CoinA, CoinB>{ init_balance: 0,
+                        start_time: 0,
+                        end_time: 0 })
+    }
+
+    fun update_current_rewardpool<CoinA, CoinB>(current_pool: &mut CurrentRewardPool<CoinA, CoinB> , next_pool: &mut NextRewardPool<CoinA, CoinB>) {
+        let now_time = LibraTimestamp::now_microseconds();
+        if(next_pool.start_time <= now_time){
+            current_pool.init_balance = next_pool.init_balance;
+            current_pool.remain_balance = next_pool.init_balance;
+            current_pool.start_time = next_pool.start_time;
+            current_pool.end_time = next_pool.end_time;
+        };
+    }
+
+    public fun withdraw_mine_reward<CoinA, CoinB>(cap: &LibraAccount::WithdrawCapability, addr: address, new_lp_amount: u64): u64 acquires AllMinersInfo, CurrentRewardPool, NextRewardPool{
+        if(!exists<CurrentRewardPool<CoinA, CoinB>>(admin_addr())){
+            return 0
+        };
+        let current_reward_pool = borrow_global_mut<CurrentRewardPool<CoinA, CoinB>>(admin_addr());
+        let next_reward_pool = borrow_global_mut<NextRewardPool<CoinA, CoinB>>(admin_addr());
+        distribute<CoinA, CoinB>(current_reward_pool, next_reward_pool);
+
+        let all_miners_info = borrow_global_mut<AllMinersInfo<CoinA, CoinB>>(admin_addr());
+        let (total_lp_amount, miners_info) = (all_miners_info.total_lp_amount, &mut all_miners_info.all_miners);
+        let len = Vector::length(miners_info);
+        let old_lp_amount = 0;
+        let withdraw_amount = 0;
+        let miner_index = 0;
+        let find = false;
+        let i = 0;
+        while (i < len) {
+            let miner = Vector::borrow_mut(miners_info, i);
+            if (miner.miner_addr == addr) {
+                old_lp_amount = miner.lp_amount;
+                withdraw_amount = miner.mine_balance;
+                miner.mine_balance = 0;
+                miner.lp_amount = new_lp_amount;
+                miner_index = i;
+                find = true;
+                break
+            };
+            i = i + 1;
+        };
+        if(find) {
+            if(new_lp_amount == 0) {
+                Vector::remove(miners_info, miner_index);
+            };
+        } else {
+            Vector::push_back(miners_info, MinerInfo{
+                miner_addr: addr,
+                lp_amount: new_lp_amount,
+                mine_balance: 0,
+                start_time: current_reward_pool.start_time
+            })
+        };
+        if(withdraw_amount == 0){
+            return 0
+        };
+        assert(old_lp_amount > 0, 4008);
+        all_miners_info.total_lp_amount = total_lp_amount + new_lp_amount - old_lp_amount;
+        withdraw<Coin1>(cap, addr, withdraw_amount);
+        withdraw_amount
+    }
+
+    fun distribute<CoinA, CoinB>(current_reward_pool: &mut CurrentRewardPool<CoinA, CoinB> , next_reward_pool: &mut NextRewardPool<CoinA, CoinB>) acquires AllMinersInfo {
+        if (current_reward_pool.start_time == current_reward_pool.end_time) {
+            assert(current_reward_pool.remain_balance == 0, 3007);
+            update_current_rewardpool(current_reward_pool, next_reward_pool);
+        };
+        if (current_reward_pool.start_time == current_reward_pool.end_time) {
+            return
+        };
+        let all_miners_info = borrow_global_mut<AllMinersInfo<CoinA, CoinB>>(admin_addr());
+        let (total_lp_amount, miners_info) = (all_miners_info.total_lp_amount, &mut all_miners_info.all_miners);
+        if(total_lp_amount == 0){
+            return
+        };
+        let len = Vector::length(miners_info);
+        let remain_balance = current_reward_pool.remain_balance;
+        assert(remain_balance > 0, 3008);
+        let tmp_now_time = LibraTimestamp::now_microseconds();
+        let now_time = if(tmp_now_time > current_reward_pool.end_time) {
+            current_reward_pool.end_time
+        }else {
+            tmp_now_time
+        };
+        let time_past = now_time - current_reward_pool.start_time;
+        let time_span = current_reward_pool.end_time - current_reward_pool.start_time;
+        let distrute_amount = 0;
+        let i = 0;
+        while (i < len) {
+            let miner = Vector::borrow_mut(miners_info, i);
+            let reward_amount =  (remain_balance * miner.lp_amount * time_past) / (total_lp_amount * time_span);
+            distrute_amount = distrute_amount + reward_amount;
+            miner.mine_balance = miner.mine_balance + reward_amount;
+            miner.start_time = now_time;
+            i = i + 1;
+        };
+        current_reward_pool.start_time = now_time;
+        current_reward_pool.remain_balance = remain_balance - distrute_amount;
+    }
+
+    public fun set_next_rewardpool<CoinA, CoinB>(account: &signer, init_balance: u64, start_time: u64, end_time: u64) acquires AllMinersInfo, NextRewardPool, CurrentRewardPool {
+        assert(exists<CurrentRewardPool<CoinA, CoinB>>(admin_addr()), 3001);
+        assert(Signer::address_of(account)  == admin_addr(), 4008);
+        let current_reward_pool = borrow_global_mut<CurrentRewardPool<CoinA, CoinB>>(admin_addr());
+        let next_reward_pool = borrow_global_mut<NextRewardPool<CoinA, CoinB>>(admin_addr());
+        distribute<CoinA, CoinB>(current_reward_pool, next_reward_pool);
+        assert(next_reward_pool.end_time == current_reward_pool.end_time, 4009);
+        assert(start_time >= current_reward_pool.end_time, 4009);
+        next_reward_pool.init_balance = init_balance;
+        next_reward_pool.start_time = start_time;
+        next_reward_pool.end_time = end_time;
+        deposit<Coin1>(account, init_balance);
     }
 
     public fun set_fee_factor(account: &signer, factor1: u128, factor2: u128) acquires EventInfo {

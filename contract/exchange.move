@@ -18,7 +18,6 @@ module Exchange {
         cap: LibraAccount::WithdrawCapability,
     }
 
-
     resource struct Reserve{
         liquidity_total_supply: u64,
         coina: Token,
@@ -66,6 +65,17 @@ module Exchange {
         if (!LibraAccount::accepts_currency<Token>(admin_addr())) {
             LibraAccount::add_currency<Token>(account);
         };
+    }
+
+    public fun withdraw_mine_reward<CoinA, CoinB>(account: &signer): u64 acquires RegisteredCurrencies, Tokens, WithdrawCapability {
+        let sender = Signer::address_of(account);
+        assert(exists<Tokens>(sender), 5100);
+        let (ida, idb) = get_pair_indexs<CoinA, CoinB>();
+        let tokens = borrow_global_mut<Tokens>(Signer::address_of(account));
+        let id = (ida << 32) + idb;
+        let token = get_token(id, tokens);
+        let cap  = borrow_global<WithdrawCapability>(admin_addr());
+        ExDep::withdraw_mine_reward<CoinA, CoinB>(&cap.cap, Signer::address_of(account), token.value)
     }
 
     // Return whether accepts `Token` type coins
@@ -176,7 +186,7 @@ module Exchange {
         (total_supply + liquidity, amounta, amountb)
     }
 
-    public fun add_liquidity<CoinA, CoinB>(account: &signer, amounta_desired: u64, amountb_desired: u64, amounta_min: u64, amountb_min: u64) acquires Reserves, RegisteredCurrencies, Tokens {
+    public fun add_liquidity<CoinA, CoinB>(account: &signer, amounta_desired: u64, amountb_desired: u64, amounta_min: u64, amountb_min: u64) acquires Reserves, RegisteredCurrencies, Tokens, WithdrawCapability {
         assert(accepts_currency<CoinA>() && accepts_currency<CoinB>(), 5060);
         let reserves = borrow_global_mut<Reserves>(admin_addr());
 
@@ -185,6 +195,7 @@ module Exchange {
 
         let (total_supply, reservea, reserveb) = (reserve.liquidity_total_supply, reserve.coina.value, reserve.coinb.value);
         let (total_supply, amounta, amountb) = mint<CoinA, CoinB>(account, ida, idb, amounta_desired, amountb_desired, amounta_min, amountb_min, reservea, reserveb, total_supply);
+        withdraw_mine_reward<CoinA, CoinB>(account);
         reserve.liquidity_total_supply = total_supply;
         reserve.coina.value = reservea + amounta;
         reserve.coinb.value = reserveb + amountb;
@@ -205,6 +216,7 @@ module Exchange {
         reserve.liquidity_total_supply = total_supply - liquidity;
         reserve.coina.value = reservea - amounta;
         reserve.coinb.value = reserveb - amountb;
+        assert(token.value >= liquidity, 5071);
         token.value = token.value - liquidity;
 
         let coina = Libra::currency_code<CoinA>();
@@ -213,6 +225,7 @@ module Exchange {
         ExDep::c_b_event(coina, amounta, coinb, amountb, liquidity);
         withdraw<CoinA>(Signer::address_of(account), amounta);
         withdraw<CoinB>(Signer::address_of(account), amountb);
+        withdraw_mine_reward<CoinA, CoinB>(account);
     }
 
     public fun swap<CoinA, CoinB>(account: &signer, payee: address, amount_in: u64, amount_out_min: u64, path: vector<u8>, data: vector<u8>) acquires Reserves, RegisteredCurrencies, WithdrawCapability {
