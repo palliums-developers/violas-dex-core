@@ -1,4 +1,4 @@
-//! account: super
+//! account: super, 120000000000000000Coin1
 //! account: sally, 0, 0, address
 //! account: sally1, 0, 0, address
 
@@ -50,17 +50,18 @@ module ExDep {
         output_name: vector<u8>,
         output_amount: u64,
         data: vector<u8>,
+        timestamp: u64
+    }
+
+    resource struct NextRewardPool<CoinA, CoinB> {
+        init_balance: u64,
+        start_time: u64,
+        end_time: u64
     }
 
     resource struct CurrentRewardPool<CoinA, CoinB> {
         init_balance: u64,
         remain_balance: u64,
-        start_time: u64,
-        end_time: u64
-    }
-
-    resource struct NextRewardPool<CoinA, CoinB> {
-        init_balance: u64,
         start_time: u64,
         end_time: u64
     }
@@ -89,6 +90,9 @@ module ExDep {
 
     public fun add_mine_pool<CoinA, CoinB>(account: &signer) {
         assert(Signer::address_of(account)  == admin_addr(), 4007);
+        // assert(!exists<CurrentRewardPool<CoinA, CoinB>>(admin_addr()), 4008);
+        // assert(!exists<CurrentRewardPool<CoinB, CoinA>>(admin_addr()), 4009);
+
         move_to(account, AllMinersInfo<CoinA, CoinB>{ total_lp_amount: 0, all_miners: Vector::empty<MinerInfo>()});
 
         move_to(account, CurrentRewardPool<CoinA, CoinB>{ init_balance: 0,
@@ -102,18 +106,16 @@ module ExDep {
 
     fun update_current_rewardpool<CoinA, CoinB>(current_pool: &mut CurrentRewardPool<CoinA, CoinB> , next_pool: &mut NextRewardPool<CoinA, CoinB>) {
         let now_time = LibraTimestamp::now_microseconds();
-        if(next_pool.start_time <= now_time){
-            current_pool.init_balance = next_pool.init_balance;
-            current_pool.remain_balance = next_pool.init_balance;
+        if(next_pool.start_time <= now_time && next_pool.start_time >= current_pool.end_time) {
+            current_pool.remain_balance = current_pool.remain_balance + next_pool.init_balance;
+            current_pool.init_balance = current_pool.remain_balance;
             current_pool.start_time = next_pool.start_time;
             current_pool.end_time = next_pool.end_time;
         };
     }
 
     public fun withdraw_mine_reward<CoinA, CoinB>(cap: &LibraAccount::WithdrawCapability, addr: address, new_lp_amount: u64): u64 acquires AllMinersInfo, CurrentRewardPool, NextRewardPool{
-        if(!exists<CurrentRewardPool<CoinA, CoinB>>(admin_addr())){
-            return 0
-        };
+        assert(exists<CurrentRewardPool<CoinA, CoinB>>(admin_addr()), 4008);
         let current_reward_pool = borrow_global_mut<CurrentRewardPool<CoinA, CoinB>>(admin_addr());
         let next_reward_pool = borrow_global_mut<NextRewardPool<CoinA, CoinB>>(admin_addr());
         distribute<CoinA, CoinB>(current_reward_pool, next_reward_pool);
@@ -143,7 +145,7 @@ module ExDep {
             if(new_lp_amount == 0) {
                 Vector::remove(miners_info, miner_index);
             };
-        } else {
+        } else if(new_lp_amount > 0){
             Vector::push_back(miners_info, MinerInfo{
                 miner_addr: addr,
                 lp_amount: new_lp_amount,
@@ -161,10 +163,7 @@ module ExDep {
     }
 
     fun distribute<CoinA, CoinB>(current_reward_pool: &mut CurrentRewardPool<CoinA, CoinB> , next_reward_pool: &mut NextRewardPool<CoinA, CoinB>) acquires AllMinersInfo {
-        if (current_reward_pool.start_time == current_reward_pool.end_time) {
-            assert(current_reward_pool.remain_balance == 0, 3007);
-            update_current_rewardpool(current_reward_pool, next_reward_pool);
-        };
+        update_current_rewardpool(current_reward_pool, next_reward_pool);
         if (current_reward_pool.start_time == current_reward_pool.end_time) {
             return
         };
@@ -201,11 +200,12 @@ module ExDep {
     public fun set_next_rewardpool<CoinA, CoinB>(account: &signer, init_balance: u64, start_time: u64, end_time: u64) acquires AllMinersInfo, NextRewardPool, CurrentRewardPool {
         assert(exists<CurrentRewardPool<CoinA, CoinB>>(admin_addr()), 3001);
         assert(Signer::address_of(account)  == admin_addr(), 4008);
+        assert(start_time < end_time, 4008);
         let current_reward_pool = borrow_global_mut<CurrentRewardPool<CoinA, CoinB>>(admin_addr());
         let next_reward_pool = borrow_global_mut<NextRewardPool<CoinA, CoinB>>(admin_addr());
+        let now_time = LibraTimestamp::now_microseconds();
+        assert(next_reward_pool.start_time < now_time && start_time >= next_reward_pool.end_time && start_time > now_time, 4009);
         distribute<CoinA, CoinB>(current_reward_pool, next_reward_pool);
-        assert(next_reward_pool.end_time == current_reward_pool.end_time, 4009);
-        assert(start_time >= current_reward_pool.end_time, 4009);
         next_reward_pool.init_balance = init_balance;
         next_reward_pool.start_time = start_time;
         next_reward_pool.end_time = end_time;
@@ -283,14 +283,14 @@ module ExDep {
         );
     }
 
-
     public fun c_s_event(v1: vector<u8>, v2: u64, v3: vector<u8>, v4: u64, v5: vector<u8>) acquires EventInfo {
         let swap_event = SwapEvent {
             input_name: v1,
             input_amount: v2,
             output_name: v3,
             output_amount: v4,
-            data: v5
+            data: v5,
+            timestamp: LibraTimestamp::now_microseconds()
         };
         let data = LCS::to_bytes<SwapEvent>(&swap_event);
         let event = Event {
@@ -663,8 +663,6 @@ module Exchange {
     }
 }
 
-
-
 //! new-transaction
 //! sender: libraroot
 // Change option to CustomModule
@@ -675,6 +673,7 @@ fun main(config: &signer) {
 }
 }
 // check: "Keep(EXECUTED)"
+
 
 //! new-transaction
 //! sender: libraroot
@@ -733,6 +732,7 @@ fun main(account: &signer) {
 }
 
 
+
 //! new-transaction
 //! sender: libraroot
 address 0x1 {
@@ -756,6 +756,7 @@ module Coin3 {
 }
 }
 // check: "Keep(EXECUTED)"
+
 
 
 //! new-transaction
@@ -796,6 +797,7 @@ fun main(account: &signer) {
 //! sender: super
 script {
 use {{super}}::Exchange;
+use {{super}}::ExDep;
 use 0x1::Coin1::Coin1;
 use 0x1::Coin2::Coin2;
 use 0x1::Coin3::Coin3;
@@ -804,9 +806,12 @@ fun main(account: &signer) {
     Exchange::add_currency<Coin1>(account);
     Exchange::add_currency<Coin2>(account);
     Exchange::add_currency<Coin3>(account);
+    ExDep::add_mine_pool<Coin1, Coin2>(account);
+    ExDep::add_mine_pool<Coin2, Coin3>(account);
 }
 }
 // check: EXECUTED
+
 
 
 //! new-transaction
@@ -821,7 +826,6 @@ fun main(account: &signer) {
 }
 }
 // check: EXECUTED
-
 
 //! new-transaction
 //! sender: a1
@@ -1083,3 +1087,4 @@ fun main(account: &signer) {
 }
 
 // check: EXECUTED
+
