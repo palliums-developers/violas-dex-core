@@ -6,7 +6,7 @@ module ExDep {
     use 0x1::Event::{Self, EventHandle};
     use 0x1::Vector;
     use 0x1::LibraTimestamp;
-    use 0x1::Coin1::Coin1;
+    use 0x1::VLS::VLS;
 
     resource struct EventInfo {
         events: EventHandle<Event>,
@@ -149,7 +149,7 @@ module ExDep {
         };
         assert(old_lp_amount > 0, 4008);
         all_miners_info.total_lp_amount = total_lp_amount + new_lp_amount - old_lp_amount;
-        withdraw<Coin1>(cap, addr, withdraw_amount);
+        withdraw<VLS>(cap, addr, withdraw_amount);
         withdraw_amount
     }
 
@@ -200,7 +200,7 @@ module ExDep {
         next_reward_pool.init_balance = init_balance;
         next_reward_pool.start_time = start_time;
         next_reward_pool.end_time = end_time;
-        deposit<Coin1>(account, init_balance);
+        deposit<VLS>(account, init_balance);
     }
 
     public fun set_fee_factor(account: &signer, factor1: u128, factor2: u128) acquires EventInfo {

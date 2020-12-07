@@ -26,9 +26,9 @@ mv ./move_build_output/modules/0_Exchange.mv ./move_build_output/modules/exchang
 
 mv ./move_build_output/scripts/main.mv ./move_build_output/scripts/initialize.mv
 
-./move-build add_currency.move -s $addr -d $dependences exdep.move exchange.move
+./move-build add_currency_pair.move -s $addr -d $dependences exdep.move exchange.move
 
-mv ./move_build_output/scripts/main.mv ./move_build_output/scripts/add_currency.mv
+mv ./move_build_output/scripts/main.mv ./move_build_output/scripts/add_currency_pair.mv
 
 ./move-build add_liquidity.move -s $addr -d $dependences exdep.move exchange.move
 
@@ -41,10 +41,6 @@ mv ./move_build_output/scripts/main.mv ./move_build_output/scripts/remove_liquid
 ./move-build swap.move -s $addr -d $dependences exdep.move exchange.move
 
 mv ./move_build_output/scripts/main.mv ./move_build_output/scripts/swap.mv
-
-./move-build add_mine_pool.move -s $addr -d $dependences exdep.move
-
-mv ./move_build_output/scripts/main.mv ./move_build_output/scripts/add_mine_pool.mv
 
 ./move-build set_next_rewardpool.move -s $addr -d $dependences exdep.move
 
