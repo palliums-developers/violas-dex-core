@@ -1,4 +1,5 @@
-//! account: super, 120000000000000000Coin1
+//! account: super, 0Coin1
+//! account: rewarder, 120000000000000000Coin1
 //! account: sally, 0, 0, address
 //! account: sally1, 0, 0, address
 
@@ -6,16 +7,26 @@
 //! account: a1, 120000000000000000Coin1
 //! account: a2, 120000000000000000Coin1
 
+
 //! new-transaction
 //! sender: super
-module ExDep {
-    use 0x1::LibraAccount;
+module Exchange {
     use 0x1::Signer;
+    use 0x1::LibraAccount;
     use 0x1::LCS;
-    use 0x1::Event::{Self, EventHandle};
+    use 0x1::Libra;
     use 0x1::Vector;
+    use 0x1::Event::{Self, EventHandle};
     use 0x1::LibraTimestamp;
     use 0x1::Coin1::Coin1;
+
+    fun admin_addr(): address {
+        {{super}}
+    }
+
+    resource struct RewardAdmin {
+        addr: address
+    }
 
     resource struct EventInfo {
         events: EventHandle<Event>,
@@ -34,6 +45,7 @@ module ExDep {
         coinb: vector<u8>,
         deposit_amountb: u64,
         mint_amount: u64,
+        timestamp: u64
     }
 
     struct BurnEvent {
@@ -42,6 +54,7 @@ module ExDep {
         coinb: vector<u8>,
         withdraw_amountb: u64,
         burn_amount: u64,
+        timestamp: u64
     }
 
     struct SwapEvent {
@@ -53,201 +66,81 @@ module ExDep {
         timestamp: u64
     }
 
-    resource struct NextRewardPool<CoinA, CoinB> {
-        init_balance: u64,
+    struct RewardEvent {
+        pool_id: u64,
+        reward_amount: u64,
+        timestamp: u64
+    }
+
+    /// Maximum u64 value.
+    const MAX_U64: u64 = 18446744073709551615;
+
+    struct PoolUserIndex {
+        pool_id: u64,
+        user_index: u64
+    }
+
+    resource struct PoolUserIndexs {
+        pool_user_indexs: vector<PoolUserIndex>,
+    }
+
+    struct UserInfo {
+        amount: u64,  //How many LP tokens the user has provided.
+        reward_debt: u64 //Reward debt.
+    }
+
+    resource struct PoolInfo {
+        id: u64,
+        lp_supply: u64,
+        alloc_point: u64, //How many allocation points assigned to this pool.
+        acc_vls_per_share: u128, // Accumulated VLSs per share.
+        users_info: vector<UserInfo>
+    }
+
+    resource struct RewardPools {
         start_time: u64,
-        end_time: u64
+        end_time: u64,
+        last_reward_time: u64, // Last seconds that VLS distribution occurs.
+        total_reward_balance: u64,
+        total_alloc_point: u64,
+        pool_infos: vector<PoolInfo>,
     }
 
-    resource struct CurrentRewardPool<CoinA, CoinB> {
-        init_balance: u64,
-        remain_balance: u64,
-        start_time: u64,
-        end_time: u64
+    resource struct Reserves {
+        reserves: vector<Reserve>,
     }
 
-    resource struct AllMinersInfo<CoinA, CoinB> {
-        total_lp_amount: u64,
-        all_miners: vector<MinerInfo>,
+    resource struct WithdrawCapability {
+        cap: LibraAccount::WithdrawCapability,
     }
 
-    struct MinerInfo {
-        miner_addr: address,
-        lp_amount: u64,
-        mine_balance: u64,
-        start_time: u64,
+    resource struct RegisteredCurrencies {
+        currency_codes: vector<vector<u8>>,
     }
 
-    fun admin_addr(): address {
-        {{super}}
+    resource struct Reserve{
+        liquidity_total_supply: u64,
+        coina: Token,
+        coinb: Token,
     }
 
-    public fun initialize(account: &signer) {
-        move_to(account, EventInfo{ events: Event::new_event_handle<Event>(account),
-                        factor1: 9997,
-                        factor2: 10000 });
+    resource struct Tokens {
+        tokens: vector<Token>,
     }
 
-    public fun add_mine_pool<CoinA, CoinB>(account: &signer) {
-        assert(Signer::address_of(account)  == admin_addr(), 4007);
-        // assert(!exists<CurrentRewardPool<CoinA, CoinB>>(admin_addr()), 4008);
-        // assert(!exists<CurrentRewardPool<CoinB, CoinA>>(admin_addr()), 4009);
-
-        move_to(account, AllMinersInfo<CoinA, CoinB>{ total_lp_amount: 0, all_miners: Vector::empty<MinerInfo>()});
-
-        move_to(account, CurrentRewardPool<CoinA, CoinB>{ init_balance: 0,
-                        remain_balance: 0,
-                        start_time: 0,
-                        end_time: 0 });
-        move_to(account, NextRewardPool<CoinA, CoinB>{ init_balance: 0,
-                        start_time: 0,
-                        end_time: 0 })
+    resource struct Token {
+        index: u64,
+        value: u64
     }
 
-    fun update_current_rewardpool<CoinA, CoinB>(current_pool: &mut CurrentRewardPool<CoinA, CoinB> , next_pool: &mut NextRewardPool<CoinA, CoinB>) {
-        let now_time = LibraTimestamp::now_microseconds();
-        if(next_pool.start_time <= now_time && next_pool.start_time >= current_pool.end_time) {
-            current_pool.remain_balance = current_pool.remain_balance + next_pool.init_balance;
-            current_pool.init_balance = current_pool.remain_balance;
-            current_pool.start_time = next_pool.start_time;
-            current_pool.end_time = next_pool.end_time;
-        };
-    }
-
-    public fun withdraw_mine_reward<CoinA, CoinB>(cap: &LibraAccount::WithdrawCapability, addr: address, new_lp_amount: u64): u64 acquires AllMinersInfo, CurrentRewardPool, NextRewardPool{
-        assert(exists<CurrentRewardPool<CoinA, CoinB>>(admin_addr()), 4008);
-        let current_reward_pool = borrow_global_mut<CurrentRewardPool<CoinA, CoinB>>(admin_addr());
-        let next_reward_pool = borrow_global_mut<NextRewardPool<CoinA, CoinB>>(admin_addr());
-        distribute<CoinA, CoinB>(current_reward_pool, next_reward_pool);
-
-        let all_miners_info = borrow_global_mut<AllMinersInfo<CoinA, CoinB>>(admin_addr());
-        let (total_lp_amount, miners_info) = (all_miners_info.total_lp_amount, &mut all_miners_info.all_miners);
-        let len = Vector::length(miners_info);
-        let old_lp_amount = 0;
-        let withdraw_amount = 0;
-        let miner_index = 0;
-        let find = false;
-        let i = 0;
-        while (i < len) {
-            let miner = Vector::borrow_mut(miners_info, i);
-            if (miner.miner_addr == addr) {
-                old_lp_amount = miner.lp_amount;
-                withdraw_amount = miner.mine_balance;
-                miner.mine_balance = 0;
-                miner.lp_amount = new_lp_amount;
-                miner_index = i;
-                find = true;
-                break
-            };
-            i = i + 1;
-        };
-        if(find) {
-            if(new_lp_amount == 0) {
-                Vector::remove(miners_info, miner_index);
-            };
-        } else if(new_lp_amount > 0){
-            Vector::push_back(miners_info, MinerInfo{
-                miner_addr: addr,
-                lp_amount: new_lp_amount,
-                mine_balance: 0,
-                start_time: current_reward_pool.start_time
-            })
-        };
-        if(withdraw_amount == 0){
-            return 0
-        };
-        assert(old_lp_amount > 0, 4008);
-        all_miners_info.total_lp_amount = total_lp_amount + new_lp_amount - old_lp_amount;
-        withdraw<Coin1>(cap, addr, withdraw_amount);
-        withdraw_amount
-    }
-
-    fun distribute<CoinA, CoinB>(current_reward_pool: &mut CurrentRewardPool<CoinA, CoinB> , next_reward_pool: &mut NextRewardPool<CoinA, CoinB>) acquires AllMinersInfo {
-        update_current_rewardpool(current_reward_pool, next_reward_pool);
-        if (current_reward_pool.start_time == current_reward_pool.end_time) {
-            return
-        };
-        let all_miners_info = borrow_global_mut<AllMinersInfo<CoinA, CoinB>>(admin_addr());
-        let (total_lp_amount, miners_info) = (all_miners_info.total_lp_amount, &mut all_miners_info.all_miners);
-        if(total_lp_amount == 0){
-            return
-        };
-        let len = Vector::length(miners_info);
-        let remain_balance = current_reward_pool.remain_balance;
-        assert(remain_balance > 0, 3008);
-        let tmp_now_time = LibraTimestamp::now_microseconds();
-        let now_time = if(tmp_now_time > current_reward_pool.end_time) {
-            current_reward_pool.end_time
-        }else {
-            tmp_now_time
-        };
-        let time_past = now_time - current_reward_pool.start_time;
-        let time_span = current_reward_pool.end_time - current_reward_pool.start_time;
-        let distrute_amount = 0;
-        let i = 0;
-        while (i < len) {
-            let miner = Vector::borrow_mut(miners_info, i);
-            let reward_amount =  (remain_balance * miner.lp_amount * time_past) / (total_lp_amount * time_span);
-            distrute_amount = distrute_amount + reward_amount;
-            miner.mine_balance = miner.mine_balance + reward_amount;
-            miner.start_time = now_time;
-            i = i + 1;
-        };
-        current_reward_pool.start_time = now_time;
-        current_reward_pool.remain_balance = remain_balance - distrute_amount;
-    }
-
-    public fun set_next_rewardpool<CoinA, CoinB>(account: &signer, init_balance: u64, start_time: u64, end_time: u64) acquires AllMinersInfo, NextRewardPool, CurrentRewardPool {
-        assert(exists<CurrentRewardPool<CoinA, CoinB>>(admin_addr()), 3001);
-        assert(Signer::address_of(account)  == admin_addr(), 4008);
-        assert(start_time < end_time, 4008);
-        let current_reward_pool = borrow_global_mut<CurrentRewardPool<CoinA, CoinB>>(admin_addr());
-        let next_reward_pool = borrow_global_mut<NextRewardPool<CoinA, CoinB>>(admin_addr());
-        let now_time = LibraTimestamp::now_microseconds();
-        assert(next_reward_pool.start_time < now_time && start_time >= next_reward_pool.end_time && start_time > now_time, 4009);
-        distribute<CoinA, CoinB>(current_reward_pool, next_reward_pool);
-        next_reward_pool.init_balance = init_balance;
-        next_reward_pool.start_time = start_time;
-        next_reward_pool.end_time = end_time;
-        deposit<Coin1>(account, init_balance);
-    }
-
-    public fun set_fee_factor(account: &signer, factor1: u128, factor2: u128) acquires EventInfo {
-        assert(Signer::address_of(account)  == admin_addr(), 4010);
-        let event_info_ref = borrow_global_mut<EventInfo>(admin_addr());
-        event_info_ref.factor1 = factor1;
-        event_info_ref.factor2 = factor2;
-    }
-
-    public fun deposit<Token>(account: &signer, amount: u64) {
-        let sender_cap = LibraAccount::extract_withdraw_capability(account);
-        LibraAccount::pay_from<Token>(
-            &sender_cap,
-            admin_addr(),
-            amount,
-            x"",
-            x""
-        );
-        LibraAccount::restore_withdraw_capability(sender_cap);
-    }
-
-    public fun withdraw<Token>(cap: &LibraAccount::WithdrawCapability, payee: address, amount: u64) {
-        LibraAccount::pay_from<Token>(
-            cap,
-            payee,
-            amount,
-            x"",
-            x""
-        )
-    }
-
-    public fun c_m_event(v1: vector<u8>, v2: u64, v3: vector<u8>, v4: u64, v5: u64) acquires EventInfo {
+    public fun mint_event(v1: vector<u8>, v2: u64, v3: vector<u8>, v4: u64, v5: u64) acquires EventInfo {
         let mint_event = MintEvent {
             coina: v1,
             deposit_amounta: v2,
             coinb: v3,
             deposit_amountb: v4,
-            mint_amount: v5
+            mint_amount: v5,
+            timestamp: LibraTimestamp::now_seconds()
         };
         let data = LCS::to_bytes<MintEvent>(&mint_event);
         let event = Event {
@@ -262,13 +155,14 @@ module ExDep {
         );
     }
 
-    public fun c_b_event(v1: vector<u8>, v2: u64,v3: vector<u8>, v4: u64, v5: u64) acquires EventInfo {
+    public fun burn_event(v1: vector<u8>, v2: u64,v3: vector<u8>, v4: u64, v5: u64) acquires EventInfo {
         let burn_event = BurnEvent {
             coina: v1,
             withdraw_amounta: v2,
             coinb: v3,
             withdraw_amountb: v4,
-            burn_amount: v5
+            burn_amount: v5,
+            timestamp: LibraTimestamp::now_seconds()
         };
         let data = LCS::to_bytes<BurnEvent>(&burn_event);
         let event = Event {
@@ -283,18 +177,37 @@ module ExDep {
         );
     }
 
-    public fun c_s_event(v1: vector<u8>, v2: u64, v3: vector<u8>, v4: u64, v5: vector<u8>) acquires EventInfo {
+    public fun swap_event(v1: vector<u8>, v2: u64, v3: vector<u8>, v4: u64, v5: vector<u8>) acquires EventInfo {
         let swap_event = SwapEvent {
             input_name: v1,
             input_amount: v2,
             output_name: v3,
             output_amount: v4,
             data: v5,
-            timestamp: LibraTimestamp::now_microseconds()
+            timestamp: LibraTimestamp::now_seconds()
         };
         let data = LCS::to_bytes<SwapEvent>(&swap_event);
         let event = Event {
             etype: 3,
+            data: data
+        };
+
+        let event_info_ref = borrow_global_mut<EventInfo>(admin_addr());
+        Event::emit_event<Event>(
+            &mut event_info_ref.events,
+            event,
+        );
+    }
+
+  public fun reward_event(v1: u64, v2: u64) acquires EventInfo {
+        let reward_event = RewardEvent {
+            pool_id: v1,
+            reward_amount: v2,
+            timestamp: LibraTimestamp::now_seconds()
+        };
+        let data = LCS::to_bytes<RewardEvent>(&reward_event);
+        let event = Event {
+            etype: 4,
             data: data
         };
 
@@ -376,51 +289,17 @@ module ExDep {
         let denominator = (reserve_in as u128) * event_info_ref.factor2 + amount_in_with_fee;
         ((numerator / denominator) as u64)
     }
-}
 
-
-//! new-transaction
-//! sender: super
-module Exchange {
-    use 0x1::Signer;
-    use 0x1::LibraAccount;
-    use 0x1::Libra;
-    use 0x1::Vector;
-    use {{super}}::ExDep;
-
-    resource struct Reserves {
-        reserves: vector<Reserve>,
-    }
-
-    resource struct RegisteredCurrencies {
-        currency_codes: vector<vector<u8>>,
-    }
-
-    resource struct WithdrawCapability {
-        cap: LibraAccount::WithdrawCapability,
-    }
-
-    resource struct Reserve{
-        liquidity_total_supply: u64,
-        coina: Token,
-        coinb: Token,
-    }
-
-    resource struct Tokens {
-        tokens: vector<Token>,
-    }
-
-    resource struct Token {
-        index: u64,
-        value: u64,
-    }
-
-    fun admin_addr(): address {
-        {{super}}
-    }
-
-    public fun initialize(sender: &signer) {
+    public fun initialize(sender: &signer, reward_admin: address) {
         assert(Signer::address_of(sender) == admin_addr(), 5000);
+        move_to(sender, RewardPools {
+            start_time: LibraTimestamp::now_seconds(),
+            end_time: LibraTimestamp::now_seconds(),
+            last_reward_time: LibraTimestamp::now_seconds(),
+            total_reward_balance: 0,
+            total_alloc_point: 0,
+            pool_infos: Vector::empty()
+        });
         move_to(sender, Reserves {
             reserves: Vector::empty()
         });
@@ -430,7 +309,27 @@ module Exchange {
         move_to(sender, WithdrawCapability {
             cap: LibraAccount::extract_withdraw_capability(sender)
         });
-        ExDep::initialize(sender);
+        move_to(sender, EventInfo { 
+            events: Event::new_event_handle<Event>(sender),
+            factor1: 9997,
+            factor2: 10000 }
+        );
+        move_to(sender, RewardAdmin {
+            addr: reward_admin}
+        );
+    }
+
+    public fun change_reward_admin(account: &signer, reward_admin: address) acquires RewardAdmin {
+        assert(Signer::address_of(account) == admin_addr(), 5000);
+        let reward_admin_info = borrow_global_mut<RewardAdmin>(admin_addr());
+        reward_admin_info.addr = reward_admin;
+    }
+
+    public fun set_fee_factor(account: &signer, factor1: u128, factor2: u128) acquires EventInfo {
+        assert(Signer::address_of(account)  == admin_addr(), 4010);
+        let event_info_ref = borrow_global_mut<EventInfo>(admin_addr());
+        event_info_ref.factor1 = factor1;
+        event_info_ref.factor2 = factor2;
     }
 
     // Add a balance of `Token` type to the sending account.
@@ -447,17 +346,6 @@ module Exchange {
         if (!LibraAccount::accepts_currency<Token>(admin_addr())) {
             LibraAccount::add_currency<Token>(account);
         };
-    }
-
-    public fun withdraw_mine_reward<CoinA, CoinB>(account: &signer): u64 acquires RegisteredCurrencies, Tokens, WithdrawCapability {
-        let sender = Signer::address_of(account);
-        assert(exists<Tokens>(sender), 5100);
-        let (ida, idb) = get_pair_indexs<CoinA, CoinB>();
-        let tokens = borrow_global_mut<Tokens>(Signer::address_of(account));
-        let id = (ida << 32) + idb;
-        let token = get_token(id, tokens);
-        let cap  = borrow_global<WithdrawCapability>(admin_addr());
-        ExDep::withdraw_mine_reward<CoinA, CoinB>(&cap.cap, Signer::address_of(account), token.value)
     }
 
     // Return whether accepts `Token` type coins
@@ -494,7 +382,7 @@ module Exchange {
         (ida, idb)
     }
 
-    public fun get_reserve<CoinA, CoinB>(): (u64, u64, u64) acquires Reserves, RegisteredCurrencies {
+    public fun get_reserve<CoinA, CoinB>(): (u64, u64, u64) acquires Reserves, RegisteredCurrencies, RewardPools {
         let (ida, idb) = get_pair_indexs<CoinA, CoinB>();
         let reserves = borrow_global_mut<Reserves>(admin_addr());
         let reserve = get_reserve_internal(ida, idb, reserves);
@@ -504,7 +392,23 @@ module Exchange {
         (reserve.liquidity_total_supply, va, vb)
     }
 
-    fun get_reserve_internal(ida: u64, idb: u64, reserves: &mut Reserves): &mut Reserve {
+    fun add_reward_pool(ida: u64, idb: u64, lp_supply: u64) acquires RewardPools {
+        assert(exists<RewardPools>(admin_addr()), 4001);
+        let reward_pools = borrow_global_mut<RewardPools>(admin_addr());
+        let pool_infos = &mut reward_pools.pool_infos;
+        let id = (ida << 32) + idb;
+        let alloc_point = 1000;
+        Vector::push_back<PoolInfo>(pool_infos, PoolInfo {
+                        id: id,
+                        lp_supply: lp_supply,
+                        alloc_point: alloc_point,
+                        acc_vls_per_share: 0,
+                        users_info: Vector::empty()
+                    });
+        reward_pools.total_alloc_point = reward_pools.total_alloc_point + alloc_point;
+    }
+
+    fun get_reserve_internal(ida: u64, idb: u64, reserves: &mut Reserves): &mut Reserve acquires RewardPools {
         assert(ida < idb, 5050);
         let reserves = &mut reserves.reserves;
         let i = 0;
@@ -514,7 +418,7 @@ module Exchange {
             if (reserve.coina.index == ida && reserve.coinb.index == idb) return reserve;
             i = i + 1;
         };
-
+        add_reward_pool(ida, idb, 0);
         Vector::push_back<Reserve>(reserves, Reserve{
                         liquidity_total_supply: 0,
                         coina: Token{index: ida, value: 0},
@@ -525,12 +429,26 @@ module Exchange {
     }
 
     fun deposit<Token>(account: &signer, to_deposit: u64) {
-        ExDep::deposit<Token>(account, to_deposit);
+        let sender_cap = LibraAccount::extract_withdraw_capability(account);
+        LibraAccount::pay_from<Token>(
+            &sender_cap,
+            admin_addr(),
+            to_deposit,
+            x"",
+            x""
+        );
+        LibraAccount::restore_withdraw_capability(sender_cap);
     }
 
-    fun withdraw<Token>(payee: address, amount: u64) acquires WithdrawCapability{
+    fun withdraw<Token>(payee: address, amount: u64) acquires WithdrawCapability {
         let cap = borrow_global<WithdrawCapability>(admin_addr());
-        ExDep::withdraw<Token>(&cap.cap, payee, amount);
+        LibraAccount::pay_from<Token>(
+            &cap.cap,
+            payee,
+            amount,
+            x"",
+            x""
+        )
     }
 
     fun get_token(id: u64, tokens: &mut Tokens): &mut Token{
@@ -550,25 +468,212 @@ module Exchange {
         token
     }
 
-    fun mint<CoinA, CoinB>(account: &signer, ida: u64, idb: u64, amounta_desired: u64, amountb_desired: u64, amounta_min: u64, amountb_min: u64, reservea: u64, reserveb: u64, total_supply: u64): (u64, u64, u64) acquires Tokens {
+    fun get_pool_user_index(id: u64, user: address): u64 acquires PoolUserIndexs{
+        let pool_user_indexs = borrow_global<PoolUserIndexs>(user);
+        let p_user_indexs = &pool_user_indexs.pool_user_indexs;
+        let i = 0;
+        let len = Vector::length(p_user_indexs);
+        while (i < len) {
+            let p_user_index = Vector::borrow(p_user_indexs, i);
+            if (p_user_index.pool_id == id) return p_user_index.user_index;
+            i = i + 1;
+        };
+        MAX_U64
+    }
+
+    fun get_or_add_pool_user_index(id: u64, pool_user_indexs: &mut PoolUserIndexs): &mut PoolUserIndex {
+        let p_user_indexs = &mut pool_user_indexs.pool_user_indexs;
+        let i = 0;
+        let len = Vector::length(p_user_indexs);
+        while (i < len) {
+            let p_user_index = Vector::borrow_mut(p_user_indexs, i);
+            if (p_user_index.pool_id == id) return p_user_index;
+            i = i + 1;
+        };
+        Vector::push_back(p_user_indexs, PoolUserIndex {
+                pool_id: id,
+                user_index: MAX_U64
+            });
+        let p_user_index = Vector::borrow_mut(p_user_indexs, i);
+        p_user_index
+    }
+
+    public fun set_pool_alloc_point(id: u64, new_alloc_point: u64) acquires RewardPools{
+        assert(exists<RewardPools>(admin_addr()), 4001);
+        let reward_pools = borrow_global_mut<RewardPools>(admin_addr());
+        let pool_infos = &mut reward_pools.pool_infos;
+        let len = Vector::length(pool_infos);
+        let pool_info = Vector::borrow_mut(pool_infos, 0);
+        let i = 0;
+        while (i < len) {
+            pool_info = Vector::borrow_mut(pool_infos, i);
+            if (pool_info.id == id) {
+                break
+            };
+            i = i + 1;
+        };
+        let old_alloc_point = pool_info.alloc_point;
+        pool_info.alloc_point = new_alloc_point;
+        reward_pools.total_alloc_point = reward_pools.total_alloc_point - old_alloc_point + new_alloc_point;
+    }
+
+    public fun withdraw_mine_reward(account: &signer) acquires EventInfo, Tokens, PoolUserIndexs, RewardPools, WithdrawCapability {
         let sender = Signer::address_of(account);
-        if(!exists<Tokens>(sender)){
+        assert(exists<PoolUserIndexs>(sender), 4111);
+        let rc_tokens = borrow_global_mut<Tokens>(sender);
+        let tokens = &mut rc_tokens.tokens;
+        update_pool();
+        let i = 0;
+        let len = Vector::length(tokens);
+        while (i < len) {
+            let token = Vector::borrow_mut(tokens, i);
+            if(token.value == 0){
+                continue
+            };
+            update_user_reward_info(account, token.index, token.value);
+            i = i + 1;
+        };
+    }
+
+    public fun set_next_rewards(account: &signer, init_balance: u64, start_time: u64, end_time: u64) acquires RewardPools, RewardAdmin {
+        assert(exists<RewardPools>(admin_addr()), 4001);
+        let reward_admin_info = borrow_global_mut<RewardAdmin>(admin_addr());
+        assert(Signer::address_of(account)  == reward_admin_info.addr, 4002);
+        let rc_reward_pools = borrow_global_mut<RewardPools>(admin_addr());
+        rc_reward_pools.start_time = start_time;
+        rc_reward_pools.end_time = end_time;
+        rc_reward_pools.last_reward_time = start_time;
+        rc_reward_pools.total_reward_balance = rc_reward_pools.total_reward_balance + init_balance;
+        deposit<Coin1>(account, init_balance);
+    }
+
+    const MULT_FACTOR: u128 = 1000000000;
+
+    fun update_pool() acquires RewardPools {
+        let reward_pools = borrow_global_mut<RewardPools>(admin_addr());
+        let pool_infos = &mut reward_pools.pool_infos;
+        let len = Vector::length(pool_infos);
+        let now_time = LibraTimestamp::now_seconds();
+        if(now_time > reward_pools.end_time){
+            now_time = reward_pools.end_time
+        };
+        if(now_time > reward_pools.last_reward_time){
+            let total_alloc_point = reward_pools.total_alloc_point;
+            let i = 0;
+            while (i < len) {
+                let pool_info = Vector::borrow_mut(pool_infos, i);                
+                i = i + 1;
+                let lp_supply = pool_info.lp_supply;
+                if (lp_supply > 0) {
+                    let reward_per_seconds = reward_pools.total_reward_balance / (reward_pools.end_time - reward_pools.start_time);
+                    let time_span = now_time - reward_pools.last_reward_time;
+                    let vls_reward: u128 = (time_span as u128) * (reward_per_seconds as u128) * (pool_info.alloc_point as u128) / (total_alloc_point as u128);
+                    pool_info.acc_vls_per_share = pool_info.acc_vls_per_share + vls_reward * MULT_FACTOR / (lp_supply as u128);
+                };
+            };
+            reward_pools.last_reward_time = now_time;
+        };
+    }
+
+    public fun pending_reward(user: address): u64 acquires RewardPools, PoolUserIndexs {
+        let reward_pools = borrow_global<RewardPools>(admin_addr());
+        let pool_infos = &reward_pools.pool_infos;
+        let len = Vector::length(pool_infos);
+        let now_time = LibraTimestamp::now_seconds();
+        if(now_time > reward_pools.end_time){
+            now_time = reward_pools.end_time
+        };
+        let pending = 0;
+        if(now_time > reward_pools.last_reward_time){
+            let total_alloc_point = reward_pools.total_alloc_point;
+            let i = 0;
+            while (i < len) {
+                let acc_vls_per_share = 0;
+                let pool_info = Vector::borrow(pool_infos, i); 
+                i = i + 1;
+                let lp_supply = pool_info.lp_supply;
+                if (lp_supply > 0) {
+                    let reward_per_seconds = reward_pools.total_reward_balance / (reward_pools.end_time - reward_pools.start_time);
+                    let time_span = now_time - reward_pools.last_reward_time;
+                    let vls_reward: u128 = (time_span as u128) * (reward_per_seconds as u128) * (pool_info.alloc_point as u128) / (total_alloc_point as u128);
+                    acc_vls_per_share = pool_info.acc_vls_per_share + vls_reward * MULT_FACTOR / (lp_supply as u128);
+                };
+                let user_index = get_pool_user_index(pool_info.id, user);
+                if(user_index == MAX_U64){
+                    continue
+                };
+                let user_info = Vector::borrow(&pool_info.users_info, user_index);
+                pending = pending + (((user_info.amount as u128) * acc_vls_per_share / MULT_FACTOR - (user_info.reward_debt as u128)) as u64);
+            };
+        };
+        pending
+    }
+
+    fun update_user_reward_info(account: &signer, id: u64, new_liquidity: u64) acquires EventInfo, PoolUserIndexs, RewardPools, WithdrawCapability {
+        let sender = Signer::address_of(account);
+        if(!exists<PoolUserIndexs>(sender)){
+            move_to(account, PoolUserIndexs { pool_user_indexs: Vector::empty() });
+        };
+        let pool_user_indexs = borrow_global_mut<PoolUserIndexs>(sender);
+        let reward_pools = borrow_global_mut<RewardPools>(admin_addr());
+        // let pool_info = get_pool_info(id, reward_pools);
+        let pool_infos = &mut reward_pools.pool_infos;
+        let len = Vector::length(pool_infos);
+
+        let pool_info = Vector::borrow_mut(pool_infos, 0);
+        let i = 0;
+        while (i < len) {
+            pool_info = Vector::borrow_mut(pool_infos, i);
+            if (pool_info.id == id) {
+                break
+            };
+            i = i + 1;
+        };
+
+        let p_user_index = get_or_add_pool_user_index(id, pool_user_indexs);
+        if(p_user_index.user_index == MAX_U64){
+            Vector::push_back(&mut pool_info.users_info, UserInfo {
+                amount: 0,
+                reward_debt: 0
+            });
+            p_user_index.user_index = Vector::length(&mut pool_info.users_info) - 1;
+        };
+        let user_info = Vector::borrow_mut(&mut pool_info.users_info, p_user_index.user_index);
+        let old_liquidity = user_info.amount;
+        if(old_liquidity > 0){
+            let pending = (((old_liquidity as u128) * pool_info.acc_vls_per_share / MULT_FACTOR - (user_info.reward_debt as u128)) as u64);
+            if(pending > 0) {
+                reward_event(id, pending);
+                withdraw<Coin1>(sender, pending);
+            };
+        };
+        user_info.amount = new_liquidity;
+        pool_info.lp_supply = pool_info.lp_supply + new_liquidity - old_liquidity;
+        user_info.reward_debt = (((user_info.amount as u128) * pool_info.acc_vls_per_share / MULT_FACTOR) as u64);
+    }
+
+    fun mint<CoinA, CoinB>(account: &signer, ida: u64, idb: u64, amounta_desired: u64, amountb_desired: u64, amounta_min: u64, amountb_min: u64, reservea: u64, reserveb: u64, total_supply: u64): (u64, u64, u64) acquires Tokens, EventInfo, PoolUserIndexs, RewardPools, WithdrawCapability {
+        let sender = Signer::address_of(account);
+        if(!exists<Tokens>(sender)) {
             move_to(account, Tokens { tokens: Vector::empty() });
         };
+
         let id = (ida << 32) + idb;
         let tokens = borrow_global_mut<Tokens>(sender);
         let token = get_token(id, tokens);
-        let (liquidity, amounta, amountb) = ExDep::get_mint_liquidity(amounta_desired, amountb_desired, amounta_min, amountb_min, reservea, reserveb, total_supply);
+        let (liquidity, amounta, amountb) = get_mint_liquidity(amounta_desired, amountb_desired, amounta_min, amountb_min, reservea, reserveb, total_supply);
         token.value = token.value + liquidity;
         let coina = Libra::currency_code<CoinA>();
         let coinb = Libra::currency_code<CoinB>();
-        ExDep::c_m_event(coina, amounta, coinb, amountb, liquidity);
+        mint_event(coina, amounta, coinb, amountb, liquidity);
         deposit<CoinA>(account, amounta);
         deposit<CoinB>(account, amountb);
+        update_pool();
+        update_user_reward_info(account, id, token.value);
         (total_supply + liquidity, amounta, amountb)
     }
 
-    public fun add_liquidity<CoinA, CoinB>(account: &signer, amounta_desired: u64, amountb_desired: u64, amounta_min: u64, amountb_min: u64) acquires Reserves, RegisteredCurrencies, Tokens, WithdrawCapability {
+    public fun add_liquidity<CoinA, CoinB>(account: &signer, amounta_desired: u64, amountb_desired: u64, amounta_min: u64, amountb_min: u64) acquires Reserves, RegisteredCurrencies, Tokens, RewardPools, WithdrawCapability, EventInfo, PoolUserIndexs {
         assert(accepts_currency<CoinA>() && accepts_currency<CoinB>(), 5060);
         let reserves = borrow_global_mut<Reserves>(admin_addr());
 
@@ -577,13 +682,12 @@ module Exchange {
 
         let (total_supply, reservea, reserveb) = (reserve.liquidity_total_supply, reserve.coina.value, reserve.coinb.value);
         let (total_supply, amounta, amountb) = mint<CoinA, CoinB>(account, ida, idb, amounta_desired, amountb_desired, amounta_min, amountb_min, reservea, reserveb, total_supply);
-        withdraw_mine_reward<CoinA, CoinB>(account);
         reserve.liquidity_total_supply = total_supply;
         reserve.coina.value = reservea + amounta;
         reserve.coinb.value = reserveb + amountb;
     }
 
-    public fun remove_liquidity<CoinA, CoinB>(account: &signer, liquidity: u64, amounta_min: u64, amountb_min: u64) acquires Reserves, RegisteredCurrencies, Tokens, WithdrawCapability {
+    public fun remove_liquidity<CoinA, CoinB>(account: &signer, liquidity: u64, amounta_min: u64, amountb_min: u64) acquires Reserves, RegisteredCurrencies, Tokens, WithdrawCapability, EventInfo, PoolUserIndexs, RewardPools {
         let reserves = borrow_global_mut<Reserves>(admin_addr());
 
         let (ida, idb) = get_pair_indexs<CoinA, CoinB>();
@@ -600,17 +704,17 @@ module Exchange {
         reserve.coinb.value = reserveb - amountb;
         assert(token.value >= liquidity, 5071);
         token.value = token.value - liquidity;
-
+        update_pool();
+        update_user_reward_info(account, id, token.value);
         let coina = Libra::currency_code<CoinA>();
         let coinb = Libra::currency_code<CoinB>();
 
-        ExDep::c_b_event(coina, amounta, coinb, amountb, liquidity);
+        burn_event(coina, amounta, coinb, amountb, liquidity);
         withdraw<CoinA>(Signer::address_of(account), amounta);
         withdraw<CoinB>(Signer::address_of(account), amountb);
-        withdraw_mine_reward<CoinA, CoinB>(account);
     }
 
-    public fun swap<CoinA, CoinB>(account: &signer, payee: address, amount_in: u64, amount_out_min: u64, path: vector<u8>, data: vector<u8>) acquires Reserves, RegisteredCurrencies, WithdrawCapability {
+    public fun swap<CoinA, CoinB>(account: &signer, payee: address, amount_in: u64, amount_out_min: u64, path: vector<u8>, data: vector<u8>) acquires Reserves, RegisteredCurrencies, WithdrawCapability, EventInfo, RewardPools {
         let (ida, idb) = get_pair_indexs<CoinA, CoinB>();
         let coina = Libra::currency_code<CoinA>();
         let coinb = Libra::currency_code<CoinB>();
@@ -633,7 +737,7 @@ module Exchange {
             if(id_in < id_out){
                 let reserve = get_reserve_internal(id_in, id_out, reserves);
                 let (reserve_in, reserve_out) = (reserve.coina.value, reserve.coinb.value);
-                amount_out = ExDep::get_amount_out(amt_in, reserve_in, reserve_out);
+                amount_out = get_amount_out(amt_in, reserve_in, reserve_out);
                 Vector::push_back(&mut amounts, amount_out);
                 reserve.coina.value = reserve.coina.value + amt_in;
                 reserve.coinb.value = reserve.coinb.value - amount_out;
@@ -641,7 +745,7 @@ module Exchange {
             else {
                 let reserve = get_reserve_internal(id_out, id_in, reserves);
                 let (reserve_in, reserve_out) = (reserve.coinb.value, reserve.coina.value);
-                amount_out = ExDep::get_amount_out(amt_in, reserve_in, reserve_out);
+                amount_out = get_amount_out(amt_in, reserve_in, reserve_out);
                 Vector::push_back(&mut amounts, amount_out);
                 reserve.coina.value = reserve.coina.value - amount_out;
                 reserve.coinb.value = reserve.coinb.value + amt_in;
@@ -650,7 +754,7 @@ module Exchange {
             i = i + 1;
         };
         assert(amount_out >= amount_out_min, 5081);
-        ExDep::c_s_event(coina, amount_in, coinb, amount_out, data);
+        swap_event(coina, amount_in, coinb, amount_out, data);
         if(path0 < pathn){
             deposit<CoinA>(account, amount_in);
             withdraw<CoinB>(payee, amount_out);
@@ -662,6 +766,7 @@ module Exchange {
         };
     }
 }
+
 
 //! new-transaction
 //! sender: libraroot
@@ -731,8 +836,6 @@ fun main(account: &signer) {
 }
 }
 
-
-
 //! new-transaction
 //! sender: libraroot
 address 0x1 {
@@ -797,17 +900,14 @@ fun main(account: &signer) {
 //! sender: super
 script {
 use {{super}}::Exchange;
-use {{super}}::ExDep;
 use 0x1::Coin1::Coin1;
 use 0x1::Coin2::Coin2;
 use 0x1::Coin3::Coin3;
 fun main(account: &signer) {
-    Exchange::initialize(account);
+    Exchange::initialize(account, {{rewarder}});
     Exchange::add_currency<Coin1>(account);
     Exchange::add_currency<Coin2>(account);
     Exchange::add_currency<Coin3>(account);
-    ExDep::add_mine_pool<Coin1, Coin2>(account);
-    ExDep::add_mine_pool<Coin2, Coin3>(account);
 }
 }
 // check: EXECUTED
@@ -902,6 +1002,118 @@ fun main(account: &signer) {
 }
 }
 // check: "Keep(EXECUTED)"
+
+
+//! account: vivian, 1000000, 0, validator
+//! block-prologue
+//! proposer: vivian
+//! block-time: 100000000
+
+
+//! new-transaction
+//! sender: rewarder
+script {
+use {{super}}::Exchange;
+use 0x1::LibraTimestamp;
+use 0x1::LibraAccount;
+use 0x1::Coin1::Coin1;
+
+fun main(account: &signer) {
+    let now = LibraTimestamp::now_seconds();
+    assert(now == 100, 55522);
+    Exchange::set_next_rewards(account, 10000000000, now, now + 100);
+    let amt = LibraAccount::balance<Coin1>({{rewarder}});
+    assert(amt == 120000000000000000 - 10000000000, 55523);
+    amt = LibraAccount::balance<Coin1>({{super}});
+    assert(amt == 10000000000, 55524);
+}
+}
+// check: EXECUTED
+
+//! new-transaction
+//! sender: a0
+script {
+use {{super}}::Exchange;
+use 0x1::LibraTimestamp;
+use 0x1::Coin2::Coin2;
+use 0x1::Coin3::Coin3;
+
+fun main(account: &signer) {
+    let now = LibraTimestamp::now_seconds();
+    assert(now == 100, 55524);
+    Exchange::add_liquidity<Coin2, Coin3>(account, 8000000000000, 100000000000000, 0, 0);
+}
+}
+
+// check: EXECUTED
+
+//! block-prologue
+//! proposer: vivian
+//! block-time: 150000000
+
+
+//! new-transaction
+//! sender: a0
+script {
+use {{super}}::Exchange;
+use 0x1::LibraTimestamp;
+use 0x1::LibraAccount;
+use 0x1::Coin1::Coin1;
+fun main(account: &signer) {
+    let now = LibraTimestamp::now_seconds();
+    assert(now == 150, 55525);
+    let amt = LibraAccount::balance<Coin1>({{a0}});
+    assert(amt == 120000000000000000, 55526);
+    let reward = Exchange::pending_reward({{a0}});
+    assert(reward > 4990000000, 55527);
+    assert(reward < 5000000000, 55528);
+    Exchange::withdraw_mine_reward(account);
+    amt = LibraAccount::balance<Coin1>({{a0}});
+    assert(amt == 120000000000000000 + reward, 55529);
+}
+}
+// check: EXECUTED
+
+//! block-prologue
+//! proposer: vivian
+//! block-time: 250000000
+
+
+//! new-transaction
+//! sender: a0
+script {
+use {{super}}::Exchange;
+use 0x1::LibraTimestamp;
+use 0x1::LibraAccount;
+use 0x1::Coin1::Coin1;
+fun main(account: &signer) {
+    let now = LibraTimestamp::now_seconds();
+    assert(now == 250, 55533);
+    let reward = Exchange::pending_reward({{a0}});
+    assert(reward > 4990000000, 55530);
+    assert(reward < 5100000000, 55531);
+    let amt0 = LibraAccount::balance<Coin1>({{a0}});
+    Exchange::withdraw_mine_reward(account);
+    let amt = LibraAccount::balance<Coin1>({{a0}});
+    assert(amt == amt0 + reward, 55532);
+    assert(amt > 120000000000000000 + 9900000000, 55532);
+}
+}
+// check: EXECUTED
+
+//! new-transaction
+//! sender: a0
+script {
+use {{super}}::Exchange;
+use 0x1::Coin2::Coin2;
+use 0x1::Coin3::Coin3;
+
+fun main(account: &signer) {
+    let liq_ba = Exchange::get_liquidity_balance<Coin2, Coin3>({{a0}});
+    Exchange::remove_liquidity<Coin2, Coin3>(account, liq_ba, 0, 0);
+}
+}
+// check: EXECUTED
 
 
 //! new-transaction
@@ -1087,4 +1299,3 @@ fun main(account: &signer) {
 }
 
 // check: EXECUTED
-
