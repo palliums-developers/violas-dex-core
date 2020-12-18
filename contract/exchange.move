@@ -122,7 +122,7 @@ module Exchange {
         value: u64
     }
 
-    public fun mint_event(v1: vector<u8>, v2: u64, v3: vector<u8>, v4: u64, v5: u64) acquires EventInfo {
+    fun mint_event(v1: vector<u8>, v2: u64, v3: vector<u8>, v4: u64, v5: u64) acquires EventInfo {
         let mint_event = MintEvent {
             coina: v1,
             deposit_amounta: v2,
@@ -144,7 +144,7 @@ module Exchange {
         );
     }
 
-    public fun burn_event(v1: vector<u8>, v2: u64,v3: vector<u8>, v4: u64, v5: u64) acquires EventInfo {
+    fun burn_event(v1: vector<u8>, v2: u64,v3: vector<u8>, v4: u64, v5: u64) acquires EventInfo {
         let burn_event = BurnEvent {
             coina: v1,
             withdraw_amounta: v2,
@@ -166,7 +166,7 @@ module Exchange {
         );
     }
 
-    public fun swap_event(v1: vector<u8>, v2: u64, v3: vector<u8>, v4: u64, v5: vector<u8>) acquires EventInfo {
+    fun swap_event(v1: vector<u8>, v2: u64, v3: vector<u8>, v4: u64, v5: vector<u8>) acquires EventInfo {
         let swap_event = SwapEvent {
             input_name: v1,
             input_amount: v2,
@@ -188,7 +188,7 @@ module Exchange {
         );
     }
 
-  public fun reward_event(v1: u64, v2: u64) acquires EventInfo {
+    fun reward_event(v1: u64, v2: u64) acquires EventInfo {
         let reward_event = RewardEvent {
             pool_id: v1,
             reward_amount: v2,
@@ -308,7 +308,7 @@ module Exchange {
         );
     }
 
-    public fun change_reward_admin(account: &signer, reward_admin: address) acquires RewardAdmin {
+    public fun change_rewarder(account: &signer, reward_admin: address) acquires RewardAdmin {
         assert(Signer::address_of(account) == admin_addr(), 5000);
         let reward_admin_info = borrow_global_mut<RewardAdmin>(admin_addr());
         reward_admin_info.addr = reward_admin;
@@ -487,8 +487,10 @@ module Exchange {
         p_user_index
     }
 
-    public fun set_pool_alloc_point(id: u64, new_alloc_point: u64) acquires RewardPools{
+    public fun set_pool_alloc_point(account: &signer, id: u64, new_alloc_point: u64) acquires RewardPools, RewardAdmin{
         assert(exists<RewardPools>(admin_addr()), 4001);
+        let reward_admin_info = borrow_global_mut<RewardAdmin>(admin_addr());
+        assert(Signer::address_of(account)  == reward_admin_info.addr, 4002);
         let reward_pools = borrow_global_mut<RewardPools>(admin_addr());
         let pool_infos = &mut reward_pools.pool_infos;
         let len = Vector::length(pool_infos);
