@@ -46,4 +46,16 @@ mv ./move_build_output/scripts/main.mv ./move_build_output/scripts/set_next_rewa
 
 mv ./move_build_output/scripts/main.mv ./move_build_output/scripts/withdraw_mine_reward.mv
 
+./move-build change_rewarder.move -s $addr -d $dependences exchange.move
+
+mv ./move_build_output/scripts/main.mv ./move_build_output/scripts/change_rewarder.mv
+
+./move-build change_rewarder.move -s $addr -d $dependences exchange.move
+
+mv ./move_build_output/scripts/main.mv ./move_build_output/scripts/change_rewarder.mv
+
+./move-build set_pool_alloc_point.move -s $addr -d $dependences exchange.move
+
+mv ./move_build_output/scripts/main.mv ./move_build_output/scripts/set_pool_alloc_point.mv
+
 sed -i "s/$addr/0x7257c2417e4d1038e1817c8f283ace2e/g" *.move
