@@ -1,24 +1,24 @@
-//! account: super, 0Coin1
-//! account: rewarder, 120000000000000000Coin1
+//! account: super, 0XUS
+//! account: rewarder, 120000000000000000XUS
 //! account: sally, 0, 0, address
 //! account: sally1, 0, 0, address
 
-//! account: a0, 120000000000000000Coin1
-//! account: a1, 120000000000000000Coin1
-//! account: a2, 120000000000000000Coin1
+//! account: a0, 120000000000000000XUS
+//! account: a1, 120000000000000000XUS
+//! account: a2, 120000000000000000XUS
 
 
 //! new-transaction
 //! sender: super
 module Exchange {
     use 0x1::Signer;
-    use 0x1::LibraAccount;
-    use 0x1::LCS;
-    use 0x1::Libra;
+    use 0x1::DiemAccount;
+    use 0x1::BCS;
+    use 0x1::Diem;
     use 0x1::Vector;
     use 0x1::Event::{Self, EventHandle};
-    use 0x1::LibraTimestamp;
-    use 0x1::Coin1::Coin1;
+    use 0x1::DiemTimestamp;
+    use 0x1::XUS::XUS;
 
     fun admin_addr(): address {
         {{super}}
@@ -111,14 +111,14 @@ module Exchange {
     }
 
     resource struct WithdrawCapability {
-        cap: LibraAccount::WithdrawCapability,
+        cap: DiemAccount::WithdrawCapability,
     }
 
     resource struct RegisteredCurrencies {
         currency_codes: vector<vector<u8>>,
     }
 
-    resource struct Reserve{
+    resource struct Reserve {
         liquidity_total_supply: u64,
         coina: Token,
         coinb: Token,
@@ -140,9 +140,9 @@ module Exchange {
             coinb: v3,
             deposit_amountb: v4,
             mint_amount: v5,
-            timestamp: LibraTimestamp::now_seconds()
+            timestamp: DiemTimestamp::now_seconds()
         };
-        let data = LCS::to_bytes<MintEvent>(&mint_event);
+        let data = BCS::to_bytes<MintEvent>(&mint_event);
         let event = Event {
             etype: 1,
             data: data
@@ -162,9 +162,9 @@ module Exchange {
             coinb: v3,
             withdraw_amountb: v4,
             burn_amount: v5,
-            timestamp: LibraTimestamp::now_seconds()
+            timestamp: DiemTimestamp::now_seconds()
         };
-        let data = LCS::to_bytes<BurnEvent>(&burn_event);
+        let data = BCS::to_bytes<BurnEvent>(&burn_event);
         let event = Event {
             etype: 2,
             data: data
@@ -184,9 +184,9 @@ module Exchange {
             output_name: v3,
             output_amount: v4,
             data: v5,
-            timestamp: LibraTimestamp::now_seconds()
+            timestamp: DiemTimestamp::now_seconds()
         };
-        let data = LCS::to_bytes<SwapEvent>(&swap_event);
+        let data = BCS::to_bytes<SwapEvent>(&swap_event);
         let event = Event {
             etype: 3,
             data: data
@@ -203,9 +203,9 @@ module Exchange {
         let reward_event = RewardEvent {
             pool_id: v1,
             reward_amount: v2,
-            timestamp: LibraTimestamp::now_seconds()
+            timestamp: DiemTimestamp::now_seconds()
         };
-        let data = LCS::to_bytes<RewardEvent>(&reward_event);
+        let data = BCS::to_bytes<RewardEvent>(&reward_event);
         let event = Event {
             etype: 4,
             data: data
@@ -293,9 +293,9 @@ module Exchange {
     public fun initialize(sender: &signer, reward_admin: address) {
         assert(Signer::address_of(sender) == admin_addr(), 5000);
         move_to(sender, RewardPools {
-            start_time: LibraTimestamp::now_seconds(),
-            end_time: LibraTimestamp::now_seconds(),
-            last_reward_time: LibraTimestamp::now_seconds(),
+            start_time: DiemTimestamp::now_seconds(),
+            end_time: DiemTimestamp::now_seconds(),
+            last_reward_time: DiemTimestamp::now_seconds(),
             total_reward_balance: 0,
             total_alloc_point: 0,
             pool_infos: Vector::empty()
@@ -307,7 +307,7 @@ module Exchange {
             currency_codes: Vector::empty()
         });
         move_to(sender, WithdrawCapability {
-            cap: LibraAccount::extract_withdraw_capability(sender)
+            cap: DiemAccount::extract_withdraw_capability(sender)
         });
         move_to(sender, EventInfo { 
             events: Event::new_event_handle<Event>(sender),
@@ -335,7 +335,7 @@ module Exchange {
     // Add a balance of `Token` type to the sending account.
     public fun add_currency<Token>(account: &signer) acquires RegisteredCurrencies {
         assert(Signer::address_of(account)  == admin_addr(), 5001);
-        let currency_code = Libra::currency_code<Token>();
+        let currency_code = Diem::currency_code<Token>();
         let registered_currencies = borrow_global_mut<RegisteredCurrencies>(admin_addr());
 
         if (Vector::contains(&registered_currencies.currency_codes, &currency_code)){
@@ -343,15 +343,15 @@ module Exchange {
         };
         Vector::push_back(&mut registered_currencies.currency_codes, currency_code);
         
-        if (!LibraAccount::accepts_currency<Token>(admin_addr())) {
-            LibraAccount::add_currency<Token>(account);
+        if (!DiemAccount::accepts_currency<Token>(admin_addr())) {
+            DiemAccount::add_currency<Token>(account);
         };
     }
 
     // Return whether accepts `Token` type coins
     fun accepts_currency<Token>(): bool acquires RegisteredCurrencies {
         let _ = get_coin_id<Token>();
-        LibraAccount::accepts_currency<Token>(admin_addr())
+        DiemAccount::accepts_currency<Token>(admin_addr())
     }
 
     public fun get_currencys(): vector<vector<u8>> acquires RegisteredCurrencies {
@@ -360,7 +360,7 @@ module Exchange {
     }
 
     public fun get_coin_id<Token>(): u64 acquires RegisteredCurrencies {
-        let code = Libra::currency_code<Token>();
+        let code = Diem::currency_code<Token>();
         let currency_codes = get_currencys();
         let (exist, id) = Vector::index_of<vector<u8>>(&currency_codes, &code);
         assert(exist, 5010);
@@ -386,8 +386,8 @@ module Exchange {
         let (ida, idb) = get_pair_indexs<CoinA, CoinB>();
         let reserves = borrow_global_mut<Reserves>(admin_addr());
         let reserve = get_reserve_internal(ida, idb, reserves);
-        let va = LibraAccount::balance<CoinA>(admin_addr());
-        let vb = LibraAccount::balance<CoinB>(admin_addr());
+        let va = DiemAccount::balance<CoinA>(admin_addr());
+        let vb = DiemAccount::balance<CoinB>(admin_addr());
         assert(va == reserve.coina.value && vb == reserve.coinb.value, 5040);
         (reserve.liquidity_total_supply, va, vb)
     }
@@ -429,20 +429,20 @@ module Exchange {
     }
 
     fun deposit<Token>(account: &signer, to_deposit: u64) {
-        let sender_cap = LibraAccount::extract_withdraw_capability(account);
-        LibraAccount::pay_from<Token>(
+        let sender_cap = DiemAccount::extract_withdraw_capability(account);
+        DiemAccount::pay_from<Token>(
             &sender_cap,
             admin_addr(),
             to_deposit,
             x"",
             x""
         );
-        LibraAccount::restore_withdraw_capability(sender_cap);
+        DiemAccount::restore_withdraw_capability(sender_cap);
     }
 
     fun withdraw<Token>(payee: address, amount: u64) acquires WithdrawCapability {
         let cap = borrow_global<WithdrawCapability>(admin_addr());
-        LibraAccount::pay_from<Token>(
+        DiemAccount::pay_from<Token>(
             &cap.cap,
             payee,
             amount,
@@ -546,7 +546,7 @@ module Exchange {
         rc_reward_pools.end_time = end_time;
         rc_reward_pools.last_reward_time = start_time;
         rc_reward_pools.total_reward_balance = rc_reward_pools.total_reward_balance + init_balance;
-        deposit<Coin1>(account, init_balance);
+        deposit<XUS>(account, init_balance);
     }
 
     const MULT_FACTOR: u128 = 1000000000;
@@ -555,7 +555,7 @@ module Exchange {
         let reward_pools = borrow_global_mut<RewardPools>(admin_addr());
         let pool_infos = &mut reward_pools.pool_infos;
         let len = Vector::length(pool_infos);
-        let now_time = LibraTimestamp::now_seconds();
+        let now_time = DiemTimestamp::now_seconds();
         if(now_time > reward_pools.end_time){
             now_time = reward_pools.end_time
         };
@@ -581,7 +581,7 @@ module Exchange {
         let reward_pools = borrow_global<RewardPools>(admin_addr());
         let pool_infos = &reward_pools.pool_infos;
         let len = Vector::length(pool_infos);
-        let now_time = LibraTimestamp::now_seconds();
+        let now_time = DiemTimestamp::now_seconds();
         if(now_time > reward_pools.end_time){
             now_time = reward_pools.end_time
         };
@@ -646,7 +646,7 @@ module Exchange {
             let pending = (((old_liquidity as u128) * pool_info.acc_vls_per_share / MULT_FACTOR - (user_info.reward_debt as u128)) as u64);
             if(pending > 0) {
                 reward_event(id, pending);
-                withdraw<Coin1>(sender, pending);
+                withdraw<XUS>(sender, pending);
             };
         };
         user_info.amount = new_liquidity;
@@ -665,8 +665,8 @@ module Exchange {
         let token = get_token(id, tokens);
         let (liquidity, amounta, amountb) = get_mint_liquidity(amounta_desired, amountb_desired, amounta_min, amountb_min, reservea, reserveb, total_supply);
         token.value = token.value + liquidity;
-        let coina = Libra::currency_code<CoinA>();
-        let coinb = Libra::currency_code<CoinB>();
+        let coina = Diem::currency_code<CoinA>();
+        let coinb = Diem::currency_code<CoinB>();
         mint_event(coina, amounta, coinb, amountb, liquidity);
         deposit<CoinA>(account, amounta);
         deposit<CoinB>(account, amountb);
@@ -708,8 +708,8 @@ module Exchange {
         token.value = token.value - liquidity;
         update_pool();
         update_user_reward_info(account, id, token.value);
-        let coina = Libra::currency_code<CoinA>();
-        let coinb = Libra::currency_code<CoinB>();
+        let coina = Diem::currency_code<CoinA>();
+        let coinb = Diem::currency_code<CoinB>();
 
         burn_event(coina, amounta, coinb, amountb, liquidity);
         withdraw<CoinA>(Signer::address_of(account), amounta);
@@ -718,8 +718,8 @@ module Exchange {
 
     public fun swap<CoinA, CoinB>(account: &signer, payee: address, amount_in: u64, amount_out_min: u64, path: vector<u8>, data: vector<u8>) acquires Reserves, RegisteredCurrencies, WithdrawCapability, EventInfo, RewardPools {
         let (ida, idb) = get_pair_indexs<CoinA, CoinB>();
-        let coina = Libra::currency_code<CoinA>();
-        let coinb = Libra::currency_code<CoinB>();
+        let coina = Diem::currency_code<CoinA>();
+        let coinb = Diem::currency_code<CoinB>();
         let len = Vector::length(&path);
         let (path0, pathn) = (*Vector::borrow(&path, 0), *Vector::borrow(&path, len - 1));
         if(path0 > pathn){
@@ -771,29 +771,29 @@ module Exchange {
 
 
 //! new-transaction
-//! sender: libraroot
+//! sender: diemroot
 // Change option to CustomModule
 script {
-use 0x1::LibraTransactionPublishingOption;
+use 0x1::DiemTransactionPublishingOption;
 fun main(config: &signer) {
-    LibraTransactionPublishingOption::set_open_module(config, false)
+    DiemTransactionPublishingOption::set_open_module(config, false)
 }
 }
 // check: "Keep(EXECUTED)"
 
 
 //! new-transaction
-//! sender: libraroot
+//! sender: diemroot
 address 0x1 {
 module Coin2 {
     use 0x1::FixedPoint32;
-    use 0x1::Libra;
+    use 0x1::Diem;
 
     struct Coin2 { }
 
     public fun initialize(lr_account: &signer, tc_account: &signer) {
         // Register the Coin2 currency.
-        Libra::register_SCS_currency<Coin2>(
+        Diem::register_SCS_currency<Coin2>(
             lr_account,
             tc_account,
             FixedPoint32::create_from_rational(1, 2), // exchange rate to LBR
@@ -806,8 +806,9 @@ module Coin2 {
 }
 // check: "Keep(EXECUTED)"
 
+
 //! new-transaction
-//! sender: libraroot
+//! sender: diemroot
 //! execute-as: blessed
 script {
 use 0x1::TransactionFee;
@@ -818,6 +819,7 @@ fun main(lr_account: &signer, tc_account: &signer) {
 }
 }
 // check: "Keep(EXECUTED)"
+
 
 // END: registration of a currency
 
@@ -832,24 +834,24 @@ stdlib_script::create_designated_dealer
 //! sender: blessed
 script {
 use 0x1::Coin2::Coin2;
-use 0x1::LibraAccount;
+use 0x1::DiemAccount;
 fun main(account: &signer) {
-    LibraAccount::tiered_mint<Coin2>(account, {{sally}}, 120000000000000000, 3);
+    DiemAccount::tiered_mint<Coin2>(account, {{sally}}, 120000000000000000, 3);
 }
 }
 
 //! new-transaction
-//! sender: libraroot
+//! sender: Diemroot
 address 0x1 {
 module Coin3 {
     use 0x1::FixedPoint32;
-    use 0x1::Libra;
+    use 0x1::Diem;
 
     struct Coin3 { }
 
     public fun initialize(lr_account: &signer, tc_account: &signer) {
         // Register the Coin3 currency.
-        Libra::register_SCS_currency<Coin3>(
+        Diem::register_SCS_currency<Coin3>(
             lr_account,
             tc_account,
             FixedPoint32::create_from_rational(1, 2), // exchange rate to LBR
@@ -865,7 +867,7 @@ module Coin3 {
 
 
 //! new-transaction
-//! sender: libraroot
+//! sender: Diemroot
 //! execute-as: blessed
 script {
 use 0x1::TransactionFee;
@@ -892,9 +894,9 @@ stdlib_script::create_designated_dealer
 //! sender: blessed
 script {
 use 0x1::Coin3::Coin3;
-use 0x1::LibraAccount;
+use 0x1::DiemAccount;
 fun main(account: &signer) {
-    LibraAccount::tiered_mint<Coin3>(account, {{sally1}}, 120000000000000000, 3);
+    DiemAccount::tiered_mint<Coin3>(account, {{sally1}}, 120000000000000000, 3);
 }
 }
 
@@ -902,12 +904,12 @@ fun main(account: &signer) {
 //! sender: super
 script {
 use {{super}}::Exchange;
-use 0x1::Coin1::Coin1;
+use 0x1::XUS::XUS;
 use 0x1::Coin2::Coin2;
 use 0x1::Coin3::Coin3;
 fun main(account: &signer) {
     Exchange::initialize(account, {{rewarder}});
-    Exchange::add_currency<Coin1>(account);
+    Exchange::add_currency<XUS>(account);
     Exchange::add_currency<Coin2>(account);
     Exchange::add_currency<Coin3>(account);
 }
@@ -915,16 +917,15 @@ fun main(account: &signer) {
 // check: EXECUTED
 
 
-
 //! new-transaction
 //! sender: a0
 script {
-use 0x1::LibraAccount;
+use 0x1::DiemAccount;
 use 0x1::Coin2::Coin2;
 use 0x1::Coin3::Coin3;
 fun main(account: &signer) {
-    LibraAccount::add_currency<Coin2>(account);
-    LibraAccount::add_currency<Coin3>(account);
+    DiemAccount::add_currency<Coin2>(account);
+    DiemAccount::add_currency<Coin3>(account);
 }
 }
 // check: EXECUTED
@@ -932,12 +933,12 @@ fun main(account: &signer) {
 //! new-transaction
 //! sender: a1
 script {
-use 0x1::LibraAccount;
+use 0x1::DiemAccount;
 use 0x1::Coin2::Coin2;
 use 0x1::Coin3::Coin3;
 fun main(account: &signer) {
-    LibraAccount::add_currency<Coin2>(account);
-    LibraAccount::add_currency<Coin3>(account);
+    DiemAccount::add_currency<Coin2>(account);
+    DiemAccount::add_currency<Coin3>(account);
 }
 }
 // check: EXECUTED
@@ -945,12 +946,12 @@ fun main(account: &signer) {
 //! new-transaction
 //! sender: a2
 script {
-use 0x1::LibraAccount;
+use 0x1::DiemAccount;
 use 0x1::Coin2::Coin2;
 use 0x1::Coin3::Coin3;
 fun main(account: &signer) {
-    LibraAccount::add_currency<Coin2>(account);
-    LibraAccount::add_currency<Coin3>(account);
+    DiemAccount::add_currency<Coin2>(account);
+    DiemAccount::add_currency<Coin3>(account);
 }
 }
 // check: EXECUTED
@@ -959,23 +960,23 @@ fun main(account: &signer) {
 //! new-transaction
 //! sender: sally
 script {
-use 0x1::LibraAccount;
+use 0x1::DiemAccount;
 use 0x1::Coin2::Coin2;
 fun main(account: &signer) {
-    let with_cap = LibraAccount::extract_withdraw_capability(account);
-    LibraAccount::pay_from<Coin2>(&with_cap, {{a0}}, 40000000000000000, x"", x"");
-    let amt = LibraAccount::balance<Coin2>({{a0}});
+    let with_cap = DiemAccount::extract_withdraw_capability(account);
+    DiemAccount::pay_from<Coin2>(&with_cap, {{a0}}, 40000000000000000, x"", x"");
+    let amt = DiemAccount::balance<Coin2>({{a0}});
     assert(amt == 40000000000000000, 9001);
 
-    LibraAccount::pay_from<Coin2>(&with_cap, {{a1}}, 40000000000000000, x"", x"");
-    amt = LibraAccount::balance<Coin2>({{a1}});
+    DiemAccount::pay_from<Coin2>(&with_cap, {{a1}}, 40000000000000000, x"", x"");
+    amt = DiemAccount::balance<Coin2>({{a1}});
     assert(amt == 40000000000000000, 9002);
 
-    LibraAccount::pay_from<Coin2>(&with_cap, {{a2}}, 40000000000000000, x"", x"");
-    amt = LibraAccount::balance<Coin2>({{a2}});
+    DiemAccount::pay_from<Coin2>(&with_cap, {{a2}}, 40000000000000000, x"", x"");
+    amt = DiemAccount::balance<Coin2>({{a2}});
     assert(amt == 40000000000000000, 9003);
 
-    LibraAccount::restore_withdraw_capability(with_cap);
+    DiemAccount::restore_withdraw_capability(with_cap);
 }
 }
 // check: "Keep(EXECUTED)"
@@ -984,23 +985,23 @@ fun main(account: &signer) {
 //! new-transaction
 //! sender: sally1
 script {
-use 0x1::LibraAccount;
+use 0x1::DiemAccount;
 use 0x1::Coin3::Coin3;
 fun main(account: &signer) {
-    let with_cap = LibraAccount::extract_withdraw_capability(account);
-    LibraAccount::pay_from<Coin3>(&with_cap, {{a0}}, 40000000000000000, x"", x"");
-    let amt = LibraAccount::balance<Coin3>({{a0}});
+    let with_cap = DiemAccount::extract_withdraw_capability(account);
+    DiemAccount::pay_from<Coin3>(&with_cap, {{a0}}, 40000000000000000, x"", x"");
+    let amt = DiemAccount::balance<Coin3>({{a0}});
     assert(amt == 40000000000000000, 9001);
 
-    LibraAccount::pay_from<Coin3>(&with_cap, {{a1}}, 40000000000000000, x"", x"");
-    amt = LibraAccount::balance<Coin3>({{a1}});
+    DiemAccount::pay_from<Coin3>(&with_cap, {{a1}}, 40000000000000000, x"", x"");
+    amt = DiemAccount::balance<Coin3>({{a1}});
     assert(amt == 40000000000000000, 9002);
 
-    LibraAccount::pay_from<Coin3>(&with_cap, {{a2}}, 40000000000000000, x"", x"");
-    amt = LibraAccount::balance<Coin3>({{a2}});
+    DiemAccount::pay_from<Coin3>(&with_cap, {{a2}}, 40000000000000000, x"", x"");
+    amt = DiemAccount::balance<Coin3>({{a2}});
     assert(amt == 40000000000000000, 9003);
 
-    LibraAccount::restore_withdraw_capability(with_cap);
+    DiemAccount::restore_withdraw_capability(with_cap);
 }
 }
 // check: "Keep(EXECUTED)"
@@ -1016,17 +1017,17 @@ fun main(account: &signer) {
 //! sender: rewarder
 script {
 use {{super}}::Exchange;
-use 0x1::LibraTimestamp;
-use 0x1::LibraAccount;
-use 0x1::Coin1::Coin1;
+use 0x1::DiemTimestamp;
+use 0x1::DiemAccount;
+use 0x1::XUS::XUS;
 
 fun main(account: &signer) {
-    let now = LibraTimestamp::now_seconds();
+    let now = DiemTimestamp::now_seconds();
     assert(now == 100, 55522);
     Exchange::set_next_rewards(account, 10000000000, now, now + 100);
-    let amt = LibraAccount::balance<Coin1>({{rewarder}});
+    let amt = DiemAccount::balance<XUS>({{rewarder}});
     assert(amt == 120000000000000000 - 10000000000, 55523);
-    amt = LibraAccount::balance<Coin1>({{super}});
+    amt = DiemAccount::balance<XUS>({{super}});
     assert(amt == 10000000000, 55524);
 }
 }
@@ -1036,12 +1037,12 @@ fun main(account: &signer) {
 //! sender: a0
 script {
 use {{super}}::Exchange;
-use 0x1::LibraTimestamp;
+use 0x1::DiemTimestamp;
 use 0x1::Coin2::Coin2;
 use 0x1::Coin3::Coin3;
 
 fun main(account: &signer) {
-    let now = LibraTimestamp::now_seconds();
+    let now = DiemTimestamp::now_seconds();
     assert(now == 100, 55524);
     Exchange::add_liquidity<Coin2, Coin3>(account, 8000000000000, 100000000000000, 0, 0);
 }
@@ -1058,19 +1059,19 @@ fun main(account: &signer) {
 //! sender: a0
 script {
 use {{super}}::Exchange;
-use 0x1::LibraTimestamp;
-use 0x1::LibraAccount;
-use 0x1::Coin1::Coin1;
+use 0x1::DiemTimestamp;
+use 0x1::DiemAccount;
+use 0x1::XUS::XUS;
 fun main(account: &signer) {
-    let now = LibraTimestamp::now_seconds();
+    let now = DiemTimestamp::now_seconds();
     assert(now == 150, 55525);
-    let amt = LibraAccount::balance<Coin1>({{a0}});
+    let amt = DiemAccount::balance<XUS>({{a0}});
     assert(amt == 120000000000000000, 55526);
     let reward = Exchange::pending_reward({{a0}});
     assert(reward > 4990000000, 55527);
     assert(reward < 5000000000, 55528);
     Exchange::withdraw_mine_reward(account);
-    amt = LibraAccount::balance<Coin1>({{a0}});
+    amt = DiemAccount::balance<XUS>({{a0}});
     assert(amt == 120000000000000000 + reward, 55529);
 }
 }
@@ -1085,18 +1086,18 @@ fun main(account: &signer) {
 //! sender: a0
 script {
 use {{super}}::Exchange;
-use 0x1::LibraTimestamp;
-use 0x1::LibraAccount;
-use 0x1::Coin1::Coin1;
+use 0x1::DiemTimestamp;
+use 0x1::DiemAccount;
+use 0x1::XUS::XUS;
 fun main(account: &signer) {
-    let now = LibraTimestamp::now_seconds();
+    let now = DiemTimestamp::now_seconds();
     assert(now == 250, 55533);
     let reward = Exchange::pending_reward({{a0}});
     assert(reward > 4990000000, 55530);
     assert(reward < 5100000000, 55531);
-    let amt0 = LibraAccount::balance<Coin1>({{a0}});
+    let amt0 = DiemAccount::balance<XUS>({{a0}});
     Exchange::withdraw_mine_reward(account);
-    let amt = LibraAccount::balance<Coin1>({{a0}});
+    let amt = DiemAccount::balance<XUS>({{a0}});
     assert(amt == amt0 + reward, 55532);
     assert(amt > 120000000000000000 + 9900000000, 55532);
 }
@@ -1125,17 +1126,17 @@ script {
 use {{super}}::Exchange;
 use 0x1::Coin2::Coin2;
 use 0x1::Coin3::Coin3;
-use 0x1::LibraAccount;
+use 0x1::DiemAccount;
 
 fun main(account: &signer) {
-    let c1 = LibraAccount::balance<Coin2>({{a0}});
-    let c2 = LibraAccount::balance<Coin3>({{a0}});
+    let c1 = DiemAccount::balance<Coin2>({{a0}});
+    let c2 = DiemAccount::balance<Coin3>({{a0}});
     let (_, c3, c4) = Exchange::get_reserve<Coin2, Coin3>();
     Exchange::add_liquidity<Coin2, Coin3>(account, 10000000000000, 40000000000000, 0, 0);
     let liq_ba = Exchange::get_liquidity_balance<Coin2, Coin3>({{a0}});
     assert(liq_ba == 20000000000000, 5001);
-    let c11 = LibraAccount::balance<Coin2>({{a0}});
-    let c22 = LibraAccount::balance<Coin3>({{a0}});
+    let c11 = DiemAccount::balance<Coin2>({{a0}});
+    let c22 = DiemAccount::balance<Coin3>({{a0}});
     let (_, c33, c44) = Exchange::get_reserve<Coin2, Coin3>();
     assert(c33 - c3 == 10000000000000 && c44 - c4 == 40000000000000, 6001);
     assert((c1 - 10000000000000) == c11 && (c2 - 40000000000000) == c22, 6000);
@@ -1165,19 +1166,19 @@ script {
 use {{super}}::Exchange;
 use 0x1::Coin2::Coin2;
 use 0x1::Coin3::Coin3;
-use 0x1::LibraAccount;
+use 0x1::DiemAccount;
 
 fun main(account: &signer) {
     let liq_ba = Exchange::get_liquidity_balance<Coin2, Coin3>({{a0}});
-    let c1 = LibraAccount::balance<Coin2>({{a0}});
-    let c2 = LibraAccount::balance<Coin3>({{a0}});
+    let c1 = DiemAccount::balance<Coin2>({{a0}});
+    let c2 = DiemAccount::balance<Coin3>({{a0}});
     let (total, c3, c4) = Exchange::get_reserve<Coin2, Coin3>();
     assert(liq_ba == total, 5010);
 
     Exchange::remove_liquidity<Coin2, Coin3>(account, liq_ba/2, 0, 0);
     Exchange::remove_liquidity<Coin2, Coin3>(account, liq_ba/2, 0, 0);
-    let c11 = LibraAccount::balance<Coin2>({{a0}});
-    let c22 = LibraAccount::balance<Coin3>({{a0}});
+    let c11 = DiemAccount::balance<Coin2>({{a0}});
+    let c22 = DiemAccount::balance<Coin3>({{a0}});
     let (total1, c33, c44) = Exchange::get_reserve<Coin2, Coin3>();
     assert(c33 == 0 && c44 == 0 && total1 == 0, 6001);
     assert((c1 + c3) == c11 && (c2 + c4) == c22, 6000);
@@ -1207,21 +1208,21 @@ script {
 use {{super}}::Exchange;
 use 0x1::Coin2::Coin2;
 use 0x1::Coin3::Coin3;
-use 0x1::LibraAccount;
+use 0x1::DiemAccount;
 use 0x1::Vector;
 use 0x1::Signer;
 
 fun main(account: &signer) {
-    let c1 = LibraAccount::balance<Coin2>({{a1}});
-    let c2 = LibraAccount::balance<Coin3>({{a1}});
+    let c1 = DiemAccount::balance<Coin2>({{a1}});
+    let c2 = DiemAccount::balance<Coin3>({{a1}});
     let (_, c3, c4) = Exchange::get_reserve<Coin2, Coin3>();
     let path = Vector::empty<u8>();
     Vector::push_back(&mut path, 1);
     Vector::push_back(&mut path, 2);
     Exchange::swap<Coin2, Coin3>(account, Signer::address_of(account), 10000000000000, 0, path, Vector::empty<u8>());
     let liq_ba = Exchange::get_liquidity_balance<Coin2, Coin3>({{a0}});
-    let c11 = LibraAccount::balance<Coin2>({{a1}});
-    let c22 = LibraAccount::balance<Coin3>({{a1}});
+    let c11 = DiemAccount::balance<Coin2>({{a1}});
+    let c22 = DiemAccount::balance<Coin3>({{a1}});
     let (t1, c33, c44) = Exchange::get_reserve<Coin2, Coin3>();
     assert(liq_ba == t1, 7000);
     assert(c33 - c3 == 10000000000000 && c4 - c44 == 16662499791656, 7001);
@@ -1230,8 +1231,8 @@ fun main(account: &signer) {
     Vector::push_back(&mut path1, 2);
     Vector::push_back(&mut path1, 1);
     Exchange::swap<Coin2, Coin3>(account, Signer::address_of(account), 10000000000000, 0, path1, Vector::empty<u8>());
-    let c111 = LibraAccount::balance<Coin2>({{a1}});
-    let c222 = LibraAccount::balance<Coin3>({{a1}});
+    let c111 = DiemAccount::balance<Coin2>({{a1}});
+    let c222 = DiemAccount::balance<Coin3>({{a1}});
     let (_, c333, c444) = Exchange::get_reserve<Coin2, Coin3>();
     assert(c33 - c333 == 6426562510765 && c444 - c44 == 10000000000000, 7011);
     assert((c22 - 10000000000000) == c222 && (c111 - 6426562510765) == c11, 7012);
@@ -1264,10 +1265,10 @@ script {
 use {{super}}::Exchange;
 use 0x1::Coin2::Coin2;
 use 0x1::Coin3::Coin3;
-use 0x1::Coin1::Coin1;
+use 0x1::XUS::XUS;
 
 fun main(account: &signer) {
-    Exchange::add_liquidity<Coin1, Coin2>(account, 40000000000000, 80000000000000, 0, 0);
+    Exchange::add_liquidity<XUS, Coin2>(account, 40000000000000, 80000000000000, 0, 0);
     Exchange::add_liquidity<Coin2, Coin3>(account, 50000000000000, 50000000000000, 0, 0);
 }
 }
@@ -1279,7 +1280,7 @@ fun main(account: &signer) {
 //! sender: a2
 script {
 use {{super}}::Exchange;
-use 0x1::Coin1::Coin1;
+use 0x1::XUS::XUS;
 use 0x1::Coin3::Coin3;
 use 0x1::Vector;
 use 0x1::Signer;
@@ -1289,13 +1290,13 @@ fun main(account: &signer) {
     Vector::push_back(&mut path, 0);
     Vector::push_back(&mut path, 1);
     Vector::push_back(&mut path, 2);
-    Exchange::swap<Coin1, Coin3>(account, Signer::address_of(account), 10000000000000, 0, path, Vector::empty<u8>());
+    Exchange::swap<XUS, Coin3>(account, Signer::address_of(account), 10000000000000, 0, path, Vector::empty<u8>());
 
     let path1 = Vector::empty<u8>();
     Vector::push_back(&mut path1, 2);
     Vector::push_back(&mut path1, 1);
     Vector::push_back(&mut path1, 0);
-    Exchange::swap<Coin1, Coin3>(account, Signer::address_of(account), 10000000000000, 0, path1, Vector::empty<u8>());
+    Exchange::swap<XUS, Coin3>(account, Signer::address_of(account), 10000000000000, 0, path1, Vector::empty<u8>());
 
 }
 }

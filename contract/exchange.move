@@ -1,12 +1,12 @@
 address 0x1 {
 module Exchange {
     use 0x1::Signer;
-    use 0x1::LibraAccount;
-    use 0x1::LCS;
-    use 0x1::Libra;
+    use 0x1::DiemAccount;
+    use 0x1::BCS;
+    use 0x1::Diem;
     use 0x1::Vector;
     use 0x1::Event::{Self, EventHandle};
-    use 0x1::LibraTimestamp;
+    use 0x1::DiemTimestamp;
     use 0x1::VLS::VLS;
 
     fun admin_addr(): address {
@@ -100,14 +100,14 @@ module Exchange {
     }
 
     resource struct WithdrawCapability {
-        cap: LibraAccount::WithdrawCapability,
+        cap: DiemAccount::WithdrawCapability,
     }
 
     resource struct RegisteredCurrencies {
         currency_codes: vector<vector<u8>>,
     }
 
-    resource struct Reserve{
+    resource struct Reserve {
         liquidity_total_supply: u64,
         coina: Token,
         coinb: Token,
@@ -129,9 +129,9 @@ module Exchange {
             coinb: v3,
             deposit_amountb: v4,
             mint_amount: v5,
-            timestamp: LibraTimestamp::now_seconds()
+            timestamp: DiemTimestamp::now_seconds()
         };
-        let data = LCS::to_bytes<MintEvent>(&mint_event);
+        let data = BCS::to_bytes<MintEvent>(&mint_event);
         let event = Event {
             etype: 1,
             data: data
@@ -151,9 +151,9 @@ module Exchange {
             coinb: v3,
             withdraw_amountb: v4,
             burn_amount: v5,
-            timestamp: LibraTimestamp::now_seconds()
+            timestamp: DiemTimestamp::now_seconds()
         };
-        let data = LCS::to_bytes<BurnEvent>(&burn_event);
+        let data = BCS::to_bytes<BurnEvent>(&burn_event);
         let event = Event {
             etype: 2,
             data: data
@@ -173,9 +173,9 @@ module Exchange {
             output_name: v3,
             output_amount: v4,
             data: v5,
-            timestamp: LibraTimestamp::now_seconds()
+            timestamp: DiemTimestamp::now_seconds()
         };
-        let data = LCS::to_bytes<SwapEvent>(&swap_event);
+        let data = BCS::to_bytes<SwapEvent>(&swap_event);
         let event = Event {
             etype: 3,
             data: data
@@ -192,9 +192,9 @@ module Exchange {
         let reward_event = RewardEvent {
             pool_id: v1,
             reward_amount: v2,
-            timestamp: LibraTimestamp::now_seconds()
+            timestamp: DiemTimestamp::now_seconds()
         };
-        let data = LCS::to_bytes<RewardEvent>(&reward_event);
+        let data = BCS::to_bytes<RewardEvent>(&reward_event);
         let event = Event {
             etype: 4,
             data: data
@@ -282,9 +282,9 @@ module Exchange {
     public fun initialize(sender: &signer, reward_admin: address) {
         assert(Signer::address_of(sender) == admin_addr(), 5000);
         move_to(sender, RewardPools {
-            start_time: LibraTimestamp::now_seconds(),
-            end_time: LibraTimestamp::now_seconds(),
-            last_reward_time: LibraTimestamp::now_seconds(),
+            start_time: DiemTimestamp::now_seconds(),
+            end_time: DiemTimestamp::now_seconds(),
+            last_reward_time: DiemTimestamp::now_seconds(),
             total_reward_balance: 0,
             total_alloc_point: 0,
             pool_infos: Vector::empty()
@@ -296,7 +296,7 @@ module Exchange {
             currency_codes: Vector::empty()
         });
         move_to(sender, WithdrawCapability {
-            cap: LibraAccount::extract_withdraw_capability(sender)
+            cap: DiemAccount::extract_withdraw_capability(sender)
         });
         move_to(sender, EventInfo { 
             events: Event::new_event_handle<Event>(sender),
@@ -324,7 +324,7 @@ module Exchange {
     // Add a balance of `Token` type to the sending account.
     public fun add_currency<Token>(account: &signer) acquires RegisteredCurrencies {
         assert(Signer::address_of(account)  == admin_addr(), 5001);
-        let currency_code = Libra::currency_code<Token>();
+        let currency_code = Diem::currency_code<Token>();
         let registered_currencies = borrow_global_mut<RegisteredCurrencies>(admin_addr());
 
         if (Vector::contains(&registered_currencies.currency_codes, &currency_code)){
@@ -332,15 +332,15 @@ module Exchange {
         };
         Vector::push_back(&mut registered_currencies.currency_codes, currency_code);
         
-        if (!LibraAccount::accepts_currency<Token>(admin_addr())) {
-            LibraAccount::add_currency<Token>(account);
+        if (!DiemAccount::accepts_currency<Token>(admin_addr())) {
+            DiemAccount::add_currency<Token>(account);
         };
     }
 
     // Return whether accepts `Token` type coins
     fun accepts_currency<Token>(): bool acquires RegisteredCurrencies {
         let _ = get_coin_id<Token>();
-        LibraAccount::accepts_currency<Token>(admin_addr())
+        DiemAccount::accepts_currency<Token>(admin_addr())
     }
 
     public fun get_currencys(): vector<vector<u8>> acquires RegisteredCurrencies {
@@ -349,7 +349,7 @@ module Exchange {
     }
 
     public fun get_coin_id<Token>(): u64 acquires RegisteredCurrencies {
-        let code = Libra::currency_code<Token>();
+        let code = Diem::currency_code<Token>();
         let currency_codes = get_currencys();
         let (exist, id) = Vector::index_of<vector<u8>>(&currency_codes, &code);
         assert(exist, 5010);
@@ -375,8 +375,8 @@ module Exchange {
         let (ida, idb) = get_pair_indexs<CoinA, CoinB>();
         let reserves = borrow_global_mut<Reserves>(admin_addr());
         let reserve = get_reserve_internal(ida, idb, reserves);
-        let va = LibraAccount::balance<CoinA>(admin_addr());
-        let vb = LibraAccount::balance<CoinB>(admin_addr());
+        let va = DiemAccount::balance<CoinA>(admin_addr());
+        let vb = DiemAccount::balance<CoinB>(admin_addr());
         assert(va == reserve.coina.value && vb == reserve.coinb.value, 5040);
         (reserve.liquidity_total_supply, va, vb)
     }
@@ -418,20 +418,20 @@ module Exchange {
     }
 
     fun deposit<Token>(account: &signer, to_deposit: u64) {
-        let sender_cap = LibraAccount::extract_withdraw_capability(account);
-        LibraAccount::pay_from<Token>(
+        let sender_cap = DiemAccount::extract_withdraw_capability(account);
+        DiemAccount::pay_from<Token>(
             &sender_cap,
             admin_addr(),
             to_deposit,
             x"",
             x""
         );
-        LibraAccount::restore_withdraw_capability(sender_cap);
+        DiemAccount::restore_withdraw_capability(sender_cap);
     }
 
     fun withdraw<Token>(payee: address, amount: u64) acquires WithdrawCapability {
         let cap = borrow_global<WithdrawCapability>(admin_addr());
-        LibraAccount::pay_from<Token>(
+        DiemAccount::pay_from<Token>(
             &cap.cap,
             payee,
             amount,
@@ -544,7 +544,7 @@ module Exchange {
         let reward_pools = borrow_global_mut<RewardPools>(admin_addr());
         let pool_infos = &mut reward_pools.pool_infos;
         let len = Vector::length(pool_infos);
-        let now_time = LibraTimestamp::now_seconds();
+        let now_time = DiemTimestamp::now_seconds();
         if(now_time > reward_pools.end_time){
             now_time = reward_pools.end_time
         };
@@ -570,7 +570,7 @@ module Exchange {
         let reward_pools = borrow_global<RewardPools>(admin_addr());
         let pool_infos = &reward_pools.pool_infos;
         let len = Vector::length(pool_infos);
-        let now_time = LibraTimestamp::now_seconds();
+        let now_time = DiemTimestamp::now_seconds();
         if(now_time > reward_pools.end_time){
             now_time = reward_pools.end_time
         };
@@ -654,8 +654,8 @@ module Exchange {
         let token = get_token(id, tokens);
         let (liquidity, amounta, amountb) = get_mint_liquidity(amounta_desired, amountb_desired, amounta_min, amountb_min, reservea, reserveb, total_supply);
         token.value = token.value + liquidity;
-        let coina = Libra::currency_code<CoinA>();
-        let coinb = Libra::currency_code<CoinB>();
+        let coina = Diem::currency_code<CoinA>();
+        let coinb = Diem::currency_code<CoinB>();
         mint_event(coina, amounta, coinb, amountb, liquidity);
         deposit<CoinA>(account, amounta);
         deposit<CoinB>(account, amountb);
@@ -697,8 +697,8 @@ module Exchange {
         token.value = token.value - liquidity;
         update_pool();
         update_user_reward_info(account, id, token.value);
-        let coina = Libra::currency_code<CoinA>();
-        let coinb = Libra::currency_code<CoinB>();
+        let coina = Diem::currency_code<CoinA>();
+        let coinb = Diem::currency_code<CoinB>();
 
         burn_event(coina, amounta, coinb, amountb, liquidity);
         withdraw<CoinA>(Signer::address_of(account), amounta);
@@ -707,8 +707,8 @@ module Exchange {
 
     public fun swap<CoinA, CoinB>(account: &signer, payee: address, amount_in: u64, amount_out_min: u64, path: vector<u8>, data: vector<u8>) acquires Reserves, RegisteredCurrencies, WithdrawCapability, EventInfo, RewardPools {
         let (ida, idb) = get_pair_indexs<CoinA, CoinB>();
-        let coina = Libra::currency_code<CoinA>();
-        let coinb = Libra::currency_code<CoinB>();
+        let coina = Diem::currency_code<CoinA>();
+        let coinb = Diem::currency_code<CoinB>();
         let len = Vector::length(&path);
         let (path0, pathn) = (*Vector::borrow(&path, 0), *Vector::borrow(&path, len - 1));
         if(path0 > pathn){

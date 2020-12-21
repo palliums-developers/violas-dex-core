@@ -1,12 +1,12 @@
 address 0x1 {
 
 /// This module defines a struct storing the metadata of the block and new block events.
-module LibraBlock {
+module DiemBlock {
     use 0x1::CoreAddresses;
     use 0x1::Errors;
     use 0x1::Event;
-    use 0x1::LibraSystem;
-    use 0x1::LibraTimestamp;
+    use 0x1::DiemSystem;
+    use 0x1::DiemTimestamp;
 
     resource struct BlockMetadata {
         /// Height of the current block
@@ -32,9 +32,9 @@ module LibraBlock {
     /// This can only be invoked by the Association address, and only a single time.
     /// Currently, it is invoked in the genesis transaction
     public fun initialize_block_metadata(account: &signer) {
-        LibraTimestamp::assert_genesis();
+        DiemTimestamp::assert_genesis();
         // Operational constraint, only callable by the Association address
-        CoreAddresses::assert_libra_root(account);
+        CoreAddresses::assert_diem_root(account);
 
         assert(!is_initialized(), Errors::already_published(EBLOCK_METADATA));
         move_to<BlockMetadata>(
@@ -46,8 +46,8 @@ module LibraBlock {
         );
     }
     spec fun initialize_block_metadata {
-        include LibraTimestamp::AbortsIfNotGenesis;
-        include CoreAddresses::AbortsIfNotLibraRoot;
+        include DiemTimestamp::AbortsIfNotGenesis;
+        include CoreAddresses::AbortsIfNotDiemRoot;
         aborts_if is_initialized() with Errors::ALREADY_PUBLISHED;
         ensures is_initialized();
         ensures get_current_block_height() == 0;
@@ -55,7 +55,7 @@ module LibraBlock {
 
     /// Helper function to determine whether this module has been initialized.
     fun is_initialized(): bool {
-        exists<BlockMetadata>(CoreAddresses::LIBRA_ROOT_ADDRESS())
+        exists<BlockMetadata>(CoreAddresses::DIEM_ROOT_ADDRESS())
     }
 
     /// Set the metadata for the current block.
@@ -67,18 +67,18 @@ module LibraBlock {
         previous_block_votes: vector<address>,
         proposer: address
     ) acquires BlockMetadata {
-        LibraTimestamp::assert_operating();
+        DiemTimestamp::assert_operating();
         // Operational constraint: can only be invoked by the VM.
         CoreAddresses::assert_vm(vm);
 
         // Authorization
         assert(
-            proposer == CoreAddresses::VM_RESERVED_ADDRESS() || LibraSystem::is_validator(proposer),
+            proposer == CoreAddresses::VM_RESERVED_ADDRESS() || DiemSystem::is_validator(proposer),
             Errors::requires_address(EVM_OR_VALIDATOR)
         );
 
-        let block_metadata_ref = borrow_global_mut<BlockMetadata>(CoreAddresses::LIBRA_ROOT_ADDRESS());
-        LibraTimestamp::update_global_time(vm, proposer, timestamp);
+        let block_metadata_ref = borrow_global_mut<BlockMetadata>(CoreAddresses::DIEM_ROOT_ADDRESS());
+        DiemTimestamp::update_global_time(vm, proposer, timestamp);
         block_metadata_ref.height = block_metadata_ref.height + 1;
         Event::emit_event<NewBlockEvent>(
             &mut block_metadata_ref.new_block_events,
@@ -91,11 +91,11 @@ module LibraBlock {
         );
     }
     spec fun block_prologue {
-        include LibraTimestamp::AbortsIfNotOperating;
+        include DiemTimestamp::AbortsIfNotOperating;
         include CoreAddresses::AbortsIfNotVM{account: vm};
-        aborts_if proposer != CoreAddresses::VM_RESERVED_ADDRESS() && !LibraSystem::spec_is_validator(proposer)
+        aborts_if proposer != CoreAddresses::VM_RESERVED_ADDRESS() && !DiemSystem::spec_is_validator(proposer)
             with Errors::REQUIRES_ADDRESS;
-        ensures LibraTimestamp::spec_now_microseconds() == timestamp;
+        ensures DiemTimestamp::spec_now_microseconds() == timestamp;
         ensures get_current_block_height() == old(get_current_block_height()) + 1;
 
         /// The below counter overflow is assumed to be excluded from verification of callers.
@@ -105,14 +105,16 @@ module LibraBlock {
     /// Get the current block height
     public fun get_current_block_height(): u64 acquires BlockMetadata {
         assert(is_initialized(), Errors::not_published(EBLOCK_METADATA));
-        borrow_global<BlockMetadata>(CoreAddresses::LIBRA_ROOT_ADDRESS()).height
+        borrow_global<BlockMetadata>(CoreAddresses::DIEM_ROOT_ADDRESS()).height
     }
 
     spec module { } // Switch documentation context to module level.
 
     /// # Initialization
+    /// This implies that `BlockMetadata` is published after initialization and stays published
+    /// ever after
     spec module {
-        invariant [global] LibraTimestamp::is_operating() ==> is_initialized();
+        invariant [global] DiemTimestamp::is_operating() ==> is_initialized();
     }
 }
 
