@@ -58,21 +58,18 @@ module Exchange {
         reward_amount: u64
     }
 
-    /// Maximum u64 value.
-    const MAX_U64: u64 = 18446744073709551615;
-
-    struct PoolUserIndex {
-        pool_id: u64,
-        user_index: u64
-    }
-
-    resource struct PoolUserIndexs {
-        pool_user_indexs: vector<PoolUserIndex>,
-    }
-
     struct UserInfo {
         amount: u64,  //How many LP tokens the user has provided.
         reward_debt: u64 //Reward debt.
+    }
+
+    struct PoolUserInfo {
+        pool_id: u64,
+        user_info: UserInfo
+    }
+
+    resource struct PoolUserInfos {
+        pool_user_infos: vector<PoolUserInfo>,
     }
 
     resource struct PoolInfo {
@@ -80,7 +77,6 @@ module Exchange {
         lp_supply: u64,
         alloc_point: u64, //How many allocation points assigned to this pool.
         acc_vls_per_share: u128, // Accumulated VLSs per share.
-        users_info: vector<UserInfo>
     }
 
     resource struct RewardPools {
@@ -388,8 +384,7 @@ module Exchange {
                         id: id,
                         lp_supply: lp_supply,
                         alloc_point: alloc_point,
-                        acc_vls_per_share: 0,
-                        users_info: Vector::empty()
+                        acc_vls_per_share: 0
                     });
         reward_pools.total_alloc_point = reward_pools.total_alloc_point + alloc_point;
     }
@@ -454,34 +449,34 @@ module Exchange {
         token
     }
 
-    fun get_pool_user_index(id: u64, user: address): u64 acquires PoolUserIndexs{
-        let pool_user_indexs = borrow_global<PoolUserIndexs>(user);
-        let p_user_indexs = &pool_user_indexs.pool_user_indexs;
+    fun get_pool_user_info(id: u64, user: address): (bool, UserInfo) acquires PoolUserInfos {
+        let pool_user_infos = borrow_global<PoolUserInfos>(user);
+        let p_user_infos = &pool_user_infos.pool_user_infos;
         let i = 0;
-        let len = Vector::length(p_user_indexs);
+        let len = Vector::length(p_user_infos);
         while (i < len) {
-            let p_user_index = Vector::borrow(p_user_indexs, i);
-            if (p_user_index.pool_id == id) return p_user_index.user_index;
+            let p_user_info = Vector::borrow(p_user_infos, i);
+            if (p_user_info.pool_id == id) return (true, *&p_user_info.user_info);
             i = i + 1;
         };
-        MAX_U64
+        (false, UserInfo{amount: 0, reward_debt: 0})
     }
 
-    fun get_or_add_pool_user_index(id: u64, pool_user_indexs: &mut PoolUserIndexs): &mut PoolUserIndex {
-        let p_user_indexs = &mut pool_user_indexs.pool_user_indexs;
+    fun get_or_add_pool_user_info(id: u64, pool_user_infos: &mut PoolUserInfos): &mut UserInfo {
+        let p_user_infos = &mut pool_user_infos.pool_user_infos;
         let i = 0;
-        let len = Vector::length(p_user_indexs);
+        let len = Vector::length(p_user_infos);
         while (i < len) {
-            let p_user_index = Vector::borrow_mut(p_user_indexs, i);
-            if (p_user_index.pool_id == id) return p_user_index;
+            let p_user_info = Vector::borrow_mut(p_user_infos, i);
+            if (p_user_info.pool_id == id) return &mut p_user_info.user_info;
             i = i + 1;
         };
-        Vector::push_back(p_user_indexs, PoolUserIndex {
+        Vector::push_back(p_user_infos, PoolUserInfo {
                 pool_id: id,
-                user_index: MAX_U64
+                user_info: UserInfo{amount: 0, reward_debt: 0}
             });
-        let p_user_index = Vector::borrow_mut(p_user_indexs, i);
-        p_user_index
+        let p_user_info = Vector::borrow_mut(p_user_infos, i);
+        &mut p_user_info.user_info
     }
 
     public fun set_pool_alloc_point(account: &signer, id: u64, new_alloc_point: u64) acquires RewardPools, RewardAdmin{
@@ -505,9 +500,9 @@ module Exchange {
         reward_pools.total_alloc_point = reward_pools.total_alloc_point - old_alloc_point + new_alloc_point;
     }
 
-    public fun withdraw_mine_reward(account: &signer) acquires EventInfo, Tokens, PoolUserIndexs, RewardPools, WithdrawCapability {
+    public fun withdraw_mine_reward(account: &signer) acquires EventInfo, Tokens, PoolUserInfos, RewardPools, WithdrawCapability {
         let sender = Signer::address_of(account);
-        assert(exists<PoolUserIndexs>(sender), 4111);
+        assert(exists<PoolUserInfos>(sender), 4111);
         let rc_tokens = borrow_global_mut<Tokens>(sender);
         let tokens = &mut rc_tokens.tokens;
         update_pool();
@@ -563,7 +558,7 @@ module Exchange {
         };
     }
 
-    public fun pending_reward(user: address): u64 acquires RewardPools, PoolUserIndexs {
+    public fun pending_reward(user: address): u64 acquires RewardPools, PoolUserInfos {
         let reward_pools = borrow_global<RewardPools>(admin_addr());
         let pool_infos = &reward_pools.pool_infos;
         let len = Vector::length(pool_infos);
@@ -586,23 +581,22 @@ module Exchange {
                     let vls_reward: u128 = (time_span as u128) * (reward_per_seconds as u128) * (pool_info.alloc_point as u128) / (total_alloc_point as u128);
                     acc_vls_per_share = pool_info.acc_vls_per_share + vls_reward * MULT_FACTOR / (lp_supply as u128);
                 };
-                let user_index = get_pool_user_index(pool_info.id, user);
-                if(user_index == MAX_U64){
+                let (have, user_info) = get_pool_user_info(pool_info.id, user);
+                if(!have) {
                     continue
                 };
-                let user_info = Vector::borrow(&pool_info.users_info, user_index);
                 pending = pending + (((user_info.amount as u128) * acc_vls_per_share / MULT_FACTOR - (user_info.reward_debt as u128)) as u64);
             };
         };
         pending
     }
 
-    fun update_user_reward_info(account: &signer, id: u64, new_liquidity: u64) acquires EventInfo, PoolUserIndexs, RewardPools, WithdrawCapability {
+    fun update_user_reward_info(account: &signer, id: u64, new_liquidity: u64) acquires EventInfo, PoolUserInfos, RewardPools, WithdrawCapability {
         let sender = Signer::address_of(account);
-        if(!exists<PoolUserIndexs>(sender)){
-            move_to(account, PoolUserIndexs { pool_user_indexs: Vector::empty() });
+        if(!exists<PoolUserInfos>(sender)){
+            move_to(account, PoolUserInfos { pool_user_infos: Vector::empty() });
         };
-        let pool_user_indexs = borrow_global_mut<PoolUserIndexs>(sender);
+        let pool_user_infos = borrow_global_mut<PoolUserInfos>(sender);
         let reward_pools = borrow_global_mut<RewardPools>(admin_addr());
         // let pool_info = get_pool_info(id, reward_pools);
         let pool_infos = &mut reward_pools.pool_infos;
@@ -618,15 +612,7 @@ module Exchange {
             i = i + 1;
         };
 
-        let p_user_index = get_or_add_pool_user_index(id, pool_user_indexs);
-        if(p_user_index.user_index == MAX_U64){
-            Vector::push_back(&mut pool_info.users_info, UserInfo {
-                amount: 0,
-                reward_debt: 0
-            });
-            p_user_index.user_index = Vector::length(&mut pool_info.users_info) - 1;
-        };
-        let user_info = Vector::borrow_mut(&mut pool_info.users_info, p_user_index.user_index);
+        let user_info = get_or_add_pool_user_info(id, pool_user_infos);
         let old_liquidity = user_info.amount;
         if(old_liquidity > 0){
             let pending = (((old_liquidity as u128) * pool_info.acc_vls_per_share / MULT_FACTOR - (user_info.reward_debt as u128)) as u64);
@@ -640,7 +626,7 @@ module Exchange {
         user_info.reward_debt = (((user_info.amount as u128) * pool_info.acc_vls_per_share / MULT_FACTOR) as u64);
     }
 
-    fun mint<CoinA, CoinB>(account: &signer, ida: u64, idb: u64, amounta_desired: u64, amountb_desired: u64, amounta_min: u64, amountb_min: u64, reservea: u64, reserveb: u64, total_supply: u64): (u64, u64, u64) acquires Tokens, EventInfo, PoolUserIndexs, RewardPools, WithdrawCapability {
+    fun mint<CoinA, CoinB>(account: &signer, ida: u64, idb: u64, amounta_desired: u64, amountb_desired: u64, amounta_min: u64, amountb_min: u64, reservea: u64, reserveb: u64, total_supply: u64): (u64, u64, u64) acquires Tokens, EventInfo, PoolUserInfos, RewardPools, WithdrawCapability {
         let sender = Signer::address_of(account);
         if(!exists<Tokens>(sender)) {
             move_to(account, Tokens { tokens: Vector::empty() });
@@ -661,7 +647,7 @@ module Exchange {
         (total_supply + liquidity, amounta, amountb)
     }
 
-    public fun add_liquidity<CoinA, CoinB>(account: &signer, amounta_desired: u64, amountb_desired: u64, amounta_min: u64, amountb_min: u64) acquires Reserves, RegisteredCurrencies, Tokens, RewardPools, WithdrawCapability, EventInfo, PoolUserIndexs {
+    public fun add_liquidity<CoinA, CoinB>(account: &signer, amounta_desired: u64, amountb_desired: u64, amounta_min: u64, amountb_min: u64) acquires Reserves, RegisteredCurrencies, Tokens, RewardPools, WithdrawCapability, EventInfo, PoolUserInfos {
         assert(accepts_currency<CoinA>() && accepts_currency<CoinB>(), 5060);
         let reserves = borrow_global_mut<Reserves>(admin_addr());
 
@@ -675,7 +661,7 @@ module Exchange {
         reserve.coinb.value = reserveb + amountb;
     }
 
-    public fun remove_liquidity<CoinA, CoinB>(account: &signer, liquidity: u64, amounta_min: u64, amountb_min: u64) acquires Reserves, RegisteredCurrencies, Tokens, WithdrawCapability, EventInfo, PoolUserIndexs, RewardPools {
+    public fun remove_liquidity<CoinA, CoinB>(account: &signer, liquidity: u64, amounta_min: u64, amountb_min: u64) acquires Reserves, RegisteredCurrencies, Tokens, WithdrawCapability, EventInfo, PoolUserInfos, RewardPools {
         let reserves = borrow_global_mut<Reserves>(admin_addr());
 
         let (ida, idb) = get_pair_indexs<CoinA, CoinB>();
