@@ -37,6 +37,7 @@ module Exchange {
     struct Event {
         etype: u64,
         data: vector<u8>,
+        timestamp: u64
     }
 
     struct MintEvent {
@@ -44,8 +45,7 @@ module Exchange {
         deposit_amounta: u64,
         coinb: vector<u8>,
         deposit_amountb: u64,
-        mint_amount: u64,
-        timestamp: u64
+        mint_amount: u64
     }
 
     struct BurnEvent {
@@ -53,8 +53,7 @@ module Exchange {
         withdraw_amounta: u64,
         coinb: vector<u8>,
         withdraw_amountb: u64,
-        burn_amount: u64,
-        timestamp: u64
+        burn_amount: u64
     }
 
     struct SwapEvent {
@@ -62,14 +61,12 @@ module Exchange {
         input_amount: u64,
         output_name: vector<u8>,
         output_amount: u64,
-        data: vector<u8>,
-        timestamp: u64
+        data: vector<u8>
     }
 
     struct RewardEvent {
         pool_id: u64,
-        reward_amount: u64,
-        timestamp: u64
+        reward_amount: u64
     }
 
     /// Maximum u64 value.
@@ -139,12 +136,12 @@ module Exchange {
             deposit_amounta: v2,
             coinb: v3,
             deposit_amountb: v4,
-            mint_amount: v5,
-            timestamp: DiemTimestamp::now_seconds()
+            mint_amount: v5
         };
         let data = BCS::to_bytes<MintEvent>(&mint_event);
         let event = Event {
             etype: 1,
+            timestamp: DiemTimestamp::now_seconds(),
             data: data
         };
 
@@ -161,12 +158,12 @@ module Exchange {
             withdraw_amounta: v2,
             coinb: v3,
             withdraw_amountb: v4,
-            burn_amount: v5,
-            timestamp: DiemTimestamp::now_seconds()
+            burn_amount: v5
         };
         let data = BCS::to_bytes<BurnEvent>(&burn_event);
         let event = Event {
             etype: 2,
+            timestamp: DiemTimestamp::now_seconds(),
             data: data
         };
 
@@ -183,12 +180,12 @@ module Exchange {
             input_amount: v2,
             output_name: v3,
             output_amount: v4,
-            data: v5,
-            timestamp: DiemTimestamp::now_seconds()
+            data: v5
         };
         let data = BCS::to_bytes<SwapEvent>(&swap_event);
         let event = Event {
             etype: 3,
+            timestamp: DiemTimestamp::now_seconds(),
             data: data
         };
 
@@ -202,12 +199,12 @@ module Exchange {
     fun reward_event(v1: u64, v2: u64) acquires EventInfo {
         let reward_event = RewardEvent {
             pool_id: v1,
-            reward_amount: v2,
-            timestamp: DiemTimestamp::now_seconds()
+            reward_amount: v2
         };
         let data = BCS::to_bytes<RewardEvent>(&reward_event);
         let event = Event {
             etype: 4,
+            timestamp: DiemTimestamp::now_seconds(),
             data: data
         };
 
