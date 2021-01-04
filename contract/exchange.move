@@ -522,6 +522,7 @@ module Exchange {
         assert(exists<RewardPools>(admin_addr()), 4001);
         let reward_admin_info = borrow_global_mut<RewardAdmin>(admin_addr());
         assert(Signer::address_of(account)  == reward_admin_info.addr, 4002);
+        update_pool()
         let rc_reward_pools = borrow_global_mut<RewardPools>(admin_addr());
         rc_reward_pools.start_time = start_time;
         rc_reward_pools.end_time = end_time;
