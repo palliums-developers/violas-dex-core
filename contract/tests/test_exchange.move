@@ -18,10 +18,10 @@ module Exchange {
     use 0x1::Vector;
     use 0x1::Event::{Self, EventHandle};
     use 0x1::DiemTimestamp;
-    use 0x1::XUS::XUS;
+    use 0x1::VLS::VLS;
 
     fun admin_addr(): address {
-        {{super}}
+        0x7257c2417e4d1038e1817c8f283ace2e
     }
 
     resource struct RewardAdmin {
@@ -95,6 +95,7 @@ module Exchange {
         end_time: u64,
         last_reward_time: u64, // Last seconds that VLS distribution occurs.
         total_reward_balance: u64,
+        reward_per_second: u64,
         total_alloc_point: u64,
         pool_infos: vector<PoolInfo>,
     }
@@ -290,6 +291,7 @@ module Exchange {
             end_time: DiemTimestamp::now_seconds(),
             last_reward_time: DiemTimestamp::now_seconds(),
             total_reward_balance: 0,
+            reward_per_second: 0,
             total_alloc_point: 0,
             pool_infos: Vector::empty()
         });
@@ -538,8 +540,9 @@ module Exchange {
         rc_reward_pools.start_time = start_time;
         rc_reward_pools.end_time = end_time;
         rc_reward_pools.last_reward_time = start_time;
-        rc_reward_pools.total_reward_balance = rc_reward_pools.total_reward_balance + init_balance;
-        deposit<XUS>(account, init_balance);
+        rc_reward_pools.reward_per_second = init_balance / (end_time - start_time) -1;
+        rc_reward_pools.total_reward_balance = init_balance;
+        deposit<VLS>(account, init_balance);
     }
 
     const MULT_FACTOR: u128 = 1000000000;
@@ -560,11 +563,14 @@ module Exchange {
                 i = i + 1;
                 let lp_supply = pool_info.lp_supply;
                 if (lp_supply > 0) {
-                    let reward_per_seconds = reward_pools.total_reward_balance / (reward_pools.end_time - reward_pools.start_time);
+                    let reward_per_second = reward_pools.reward_per_second;
                     let time_span = now_time - reward_pools.last_reward_time;
-                    let vls_reward: u128 = (time_span as u128) * (reward_per_seconds as u128) * (pool_info.alloc_point as u128) / (total_alloc_point as u128);
+                    let vls_reward: u128 = (time_span as u128) * (reward_per_second as u128) * (pool_info.alloc_point as u128) / (total_alloc_point as u128);
                     pool_info.acc_vls_per_share = pool_info.acc_vls_per_share + vls_reward * MULT_FACTOR / (lp_supply as u128);
                 };
+                if(reward_pools.total_reward_balance == 0){
+                    pool_info.acc_vls_per_share = 0
+                }
             };
             reward_pools.last_reward_time = now_time;
         };
@@ -588,14 +594,17 @@ module Exchange {
                 i = i + 1;
                 let lp_supply = pool_info.lp_supply;
                 if (lp_supply > 0) {
-                    let reward_per_seconds = reward_pools.total_reward_balance / (reward_pools.end_time - reward_pools.start_time);
+                    let reward_per_second = reward_pools.reward_per_second;
                     let time_span = now_time - reward_pools.last_reward_time;
-                    let vls_reward: u128 = (time_span as u128) * (reward_per_seconds as u128) * (pool_info.alloc_point as u128) / (total_alloc_point as u128);
+                    let vls_reward: u128 = (time_span as u128) * (reward_per_second as u128) * (pool_info.alloc_point as u128) / (total_alloc_point as u128);
                     acc_vls_per_share = pool_info.acc_vls_per_share + vls_reward * MULT_FACTOR / (lp_supply as u128);
                 };
                 let (have, user_info) = get_pool_user_info(pool_info.id, user);
                 if(!have) {
                     continue
+                };
+                if(reward_pools.total_reward_balance == 0){
+                    acc_vls_per_share = 0;
                 };
                 pending = pending + (((user_info.amount as u128) * acc_vls_per_share / MULT_FACTOR - (user_info.reward_debt as u128)) as u64);
             };
@@ -630,7 +639,12 @@ module Exchange {
             let pending = (((old_liquidity as u128) * pool_info.acc_vls_per_share / MULT_FACTOR - (user_info.reward_debt as u128)) as u64);
             if(pending > 0) {
                 reward_event(id, pending);
-                withdraw<XUS>(sender, pending);
+                if(reward_pools.total_reward_balance < pending){
+                    reward_pools.total_reward_balance = 0;
+                    return
+                };
+                reward_pools.total_reward_balance = reward_pools.total_reward_balance - pending;
+                withdraw<VLS>(sender, pending);
             };
         };
         user_info.amount = new_liquidity;
