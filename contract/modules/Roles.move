@@ -48,7 +48,7 @@ module Roles {
 
     /// The roleId contains the role id for the account. This is only moved
     /// to an account as a top-level resource, and is otherwise immovable.
-    resource struct RoleId {
+    struct RoleId has key {
         role_id: u64,
     }
 
@@ -472,8 +472,7 @@ module Roles {
     /// # Helper Functions and Schemas
 
     spec module {
-        define spec_get_role_id(account: signer): u64 {
-            let addr = Signer::spec_address_of(account);
+        define spec_get_role_id(addr: address): u64 {
             global<RoleId>(addr).role_id
         }
 

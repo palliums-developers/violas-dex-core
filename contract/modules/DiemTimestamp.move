@@ -18,7 +18,7 @@ module DiemTimestamp {
     use 0x1::Errors;
 
     /// A singleton resource holding the current Unix time in microseconds
-    resource struct CurrentTimeMicroseconds {
+    struct CurrentTimeMicroseconds has key {
         microseconds: u64,
     }
 
@@ -41,10 +41,12 @@ module DiemTimestamp {
         move_to(dr_account, timer);
     }
     spec fun set_time_has_started {
-        /// Verification of this function is turned off because it cannot be verified without genesis execution
-        /// context. After time has started, all invariants guarded by `DiemTimestamp::is_operating` will become
-        /// activated and need to hold.
-        pragma verify = false;
+        /// The friend of this function is `Genesis::initialize` which means that
+        /// this function can't be verified on its own and has to be verified in
+        /// context of Genesis execution.
+        /// After time has started, all invariants guarded by `DiemTimestamp::is_operating`
+        /// will become activated and need to hold.
+        pragma friend = 0x1::Genesis::initialize;
         include AbortsIfNotGenesis;
         include CoreAddresses::AbortsIfNotDiemRoot{account: dr_account};
         ensures is_operating();
@@ -72,19 +74,25 @@ module DiemTimestamp {
         global_timer.microseconds = timestamp;
     }
     spec fun update_global_time {
+        pragma opaque;
+        modifies global<CurrentTimeMicroseconds>(CoreAddresses::DIEM_ROOT_ADDRESS());
+
+        let now = spec_now_microseconds();
+
+        /// Conditions unique for abstract and concrete version of this function.
         include AbortsIfNotOperating;
         include CoreAddresses::AbortsIfNotVM;
-        let now = spec_now_microseconds();
-        // TODO(wrwg): remove this assume by ensuring callers do not violate the condition
-        aborts_if [assume]
+        ensures now == timestamp; // refers to the `now` in the post state
+
+        /// Conditions we only check for the implementation, but do not pass to the caller.
+        aborts_if [concrete]
             (if (proposer == CoreAddresses::VM_RESERVED_ADDRESS()) {
-                now != timestamp
+                now != timestamp // Refers to the now in the pre state
              } else  {
                 now >= timestamp
              }
             )
             with Errors::INVALID_ARGUMENT;
-        ensures spec_now_microseconds() == timestamp;
     }
 
     /// Gets the current time in microseconds.

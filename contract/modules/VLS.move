@@ -10,10 +10,10 @@ module VLS {
     use 0x1::Vector;
     
     /// The type tag representing the `VLS` currency on-chain.
-    struct VLS { }
+    struct VLS has store { }
 
     /// VLS holds mint capability for mining
-    resource struct Reserve {
+    struct Reserve has key, store {
         /// The mint capability allowing minting of `VLS` coins.
         mint_cap: Diem::MintCapability<VLS>,
         /// The burn capability for `VLS` coins. This is used for the unpacking
@@ -26,7 +26,7 @@ module VLS {
         initial_timestamp: u64,        
     }
 
-    struct Receiver {
+    struct Receiver has copy, drop {
         addr : address,
         ratio : FixedPoint32,
     }
@@ -84,7 +84,7 @@ module VLS {
     }
 
     /// Returns true if `CoinType` is `VLS::VLS`
-    public fun is_vls<CoinType>(): bool {
+    public fun is_vls<CoinType: store>(): bool {
         Diem::is_currency<CoinType>() &&
             Diem::currency_code<CoinType>() == Diem::currency_code<VLS>()
     }

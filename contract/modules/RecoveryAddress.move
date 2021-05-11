@@ -16,7 +16,7 @@ module RecoveryAddress {
     /// rotation capabilities to a single `RecoveryAddress` resource stored under address A.
     /// The authentication key for A can be "buried in the mountain" and dug up only if the need to
     /// recover one of accounts in `rotation_caps` arises.
-    resource struct RecoveryAddress {
+    struct RecoveryAddress has key {
         rotation_caps: vector<KeyRotationCapability>
     }
 
@@ -151,7 +151,7 @@ module RecoveryAddress {
     }
 
     /// Add `to_recover` to the `RecoveryAddress` resource under `recovery_address`.
-    /// Aborts if `to_recover.address` and `recovery_address belong to different VASPs, or if
+    /// Aborts if `to_recover.address` and `recovery_address` belong to different VASPs, or if
     /// `recovery_address` does not have a `RecoveryAddress` resource.
     public fun add_rotation_capability(to_recover: KeyRotationCapability, recovery_address: address)
     acquires RecoveryAddress {
